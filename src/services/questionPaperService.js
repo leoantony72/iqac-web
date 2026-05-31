@@ -1,18 +1,4 @@
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  doc,
-  updateDoc,
-  Timestamp,
-  getDoc,
-  arrayUnion,
-  deleteDoc,
-  setDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "../firebase"; // Firebase configuration
+import { supabase } from "../lib/supabase";
 
 const submissions = [];
 export const departmentsList = [
@@ -32,18 +18,105 @@ export const uploadQuestionPaper = (data) => {
 };
 
 export const getSubmissions = () => submissions;
+
+const uploadSelect =
+  "id,subject_code,course_name,description,teacher_name,uploaded_by,status,dept,shared,year,semester,file_name,file_name_a,file_url_a,file_name_b,file_url_b,file_url,feedback,scrutiny_report,approved_at,uploaded_at";
+
+const toDateTimeParts = (value) => {
+  if (!value) {
+    return { date: null, time: null };
+  }
+
+  const dateObject = new Date(value);
+
+  if (Number.isNaN(dateObject.getTime())) {
+    return { date: null, time: null };
+  }
+
+  return {
+    date: dateObject.toLocaleDateString(),
+    time: dateObject.toLocaleTimeString(),
+  };
+};
+
+const normalizeArray = (value) => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (value == null) {
+    return [];
+  }
+
+  return [value];
+};
+
+const mapUploadRow = (row) => {
+  const { date, time } = toDateTimeParts(row.uploaded_at);
+
+  return {
+    id: row.id,
+    subjectCode: row.subject_code ?? "",
+    courseName: row.course_name ?? "",
+    description: row.description ?? "",
+    teacherName: row.teacher_name ?? "",
+    uploadedBy: row.uploaded_by ?? "",
+    status: row.status ?? "Pending",
+    dept: row.dept ?? "",
+    shared: normalizeArray(row.shared),
+    year: row.year ?? "",
+    semester: row.semester ?? "",
+    fileName: row.file_name ?? "",
+    fileNameA: row.file_name_a ?? "",
+    fileURLA: row.file_url_a ?? row.file_url ?? "",
+    fileNameB: row.file_name_b ?? "",
+    fileURLB: row.file_url_b ?? "",
+    fileURL: row.file_url ?? "",
+    feedback: normalizeArray(row.feedback),
+    scrutinyReport: row.scrutiny_report ?? null,
+    approvedAt: row.approved_at ?? null,
+    uploadedAt: row.uploaded_at ?? null,
+    date,
+    time,
+  };
+};
+
+const mapUserRow = (row) => ({
+  id: row.id,
+  email: row.email ?? "unknown@example.com",
+  name: row.name ?? extractName(row.email),
+  department: row.department ?? "Not Assigned",
+  role: row.role ?? "faculty",
+  scrutiny: row.scrutiny ?? false,
+  scrutiny_common: row.scrutiny_common ?? false,
+});
+
+const fetchUploads = async (queryBuilder) => {
+  const { data, error } = await queryBuilder.select(uploadSelect);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map(mapUploadRow);
+};
+
+const fetchSingleUpload = async (queryBuilder) => {
+  const { data, error } = await queryBuilder.select(uploadSelect).maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data ? mapUploadRow(data) : null;
+};
 // get submissions based on status
 // for Admin
 export const getApprovedSubmissions = async (status) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const approvedQuery = query(collectionRef, where("status", "==", status));
-    const querySnapshot = await getDocs(approvedQuery);
-
-    const documents = querySnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    const documents = await fetchUploads(
+      supabase.from("uploads").eq("status", status)
+    );
 
     console.log("Approved Submissions:", documents);
     return documents;
@@ -56,38 +129,9 @@ export const getApprovedSubmissions = async (status) => {
 // For teachers to sort through submission
 export const getSubmissionsByStausAndEmail = async (email, status) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const submissionsQuery = query(
-      collectionRef,
-      where("uploadedBy", "==", email),
-      where("status", "==", status)
+    const documents = await fetchUploads(
+      supabase.from("uploads").eq("uploaded_by", email).eq("status", status)
     );
-    const querySnapshot = await getDocs(submissionsQuery);
-
-    const documents = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-
-      // Check if `uploadedAt` exists and is a Firestore timestamp
-      const uploadedAt = data.uploadedAt;
-      let date = null;
-      let time = null;
-
-      if (uploadedAt && uploadedAt.seconds) {
-        // Convert Firestore Timestamp to a Date object
-        const dateObj = new Date(uploadedAt.seconds * 1000); // seconds to milliseconds
-
-        // Format the date and time
-        date = dateObj.toLocaleDateString(); // e.g., "1/19/2025"
-        time = dateObj.toLocaleTimeString(); // e.g., "2:45:30 PM"
-      }
-
-      return {
-        id: doc.id,
-        ...data,
-        date, // Adds the formatted date
-        time, // Adds the formatted time
-      };
-    });
 
     console.log("Submissions:", status, documents);
     return documents;
@@ -100,28 +144,13 @@ export const getSubmissionsByStausAndEmail = async (email, status) => {
 // for teachers to get details by id
 export const getById = async (email) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const q = query(collectionRef, where("uploadedBy", "==", email));
-    const querySnapshot = await getDocs(q);
+    const document = await fetchSingleUpload(
+      supabase.from("uploads").eq("uploaded_by", email).order("uploaded_at", {
+        ascending: false,
+      })
+    );
 
-    // Filter the documents to only include the one with the matching id
-    console.log(
-      "Documents fetched:",
-      querySnapshot.docs.map((doc) => doc.id)
-    );
-    const filteredDocument = querySnapshot.docs.find(
-      (doc) => doc.id === "AhQFRyo60ZMRPARE6RRs"
-    );
-    if (filteredDocument) {
-      console.log("Filtered Document:", filteredDocument.data());
-      return {
-        id: filteredDocument.id,
-        ...filteredDocument.data(),
-      };
-    } else {
-      console.log("No document found with the given ID.");
-      return null;
-    }
+    return document;
   } catch (error) {
     console.error("Error fetching filtered submissions:", error);
     throw error;
@@ -129,20 +158,17 @@ export const getById = async (email) => {
 };
 export const getBySubmissionId = async (id) => {
   try {
-    // Use the `doc()` method to point to the specific document by its ID
-    const docRef = doc(db, "uploads", id);
-    const docSnap = await getDoc(docRef);
+    const document = await fetchSingleUpload(
+      supabase.from("uploads").eq("id", id)
+    );
 
-    if (docSnap.exists()) {
-      console.log("Document data:", docSnap.data());
-      return {
-        id: docSnap.id,
-        ...docSnap.data(),
-      };
-    } else {
-      console.log("No document found with the given ID.");
-      return null;
+    if (document) {
+      console.log("Document data:", document);
+      return document;
     }
+
+    console.log("No document found with the given ID.");
+    return null;
   } catch (error) {
     console.error("Error fetching document by ID:", error);
     throw error;
@@ -154,12 +180,18 @@ export const getUserDepartment = async (email) => {
 
   if (email) {
     try {
-      // Get reference to the user's document in Firestore
-      const userDocRef = doc(db, "users", email); // Assuming the users are stored in the "users" collection
-      const userDocSnap = await getDoc(userDocRef);
+      const { data, error } = await supabase
+        .from("users")
+        .select("department")
+        .eq("email", email)
+        .maybeSingle();
 
-      if (userDocSnap.exists()) {
-        const department = userDocSnap.data().department; // Get the department field
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        const department = data.department;
         console.log("User department:", department);
         return department; // Return the department value
       } else {
@@ -180,12 +212,18 @@ export const getUserScrutinyCommon = async (email) => {
 
   if (email) {
     try {
-      // Get reference to the user's document in Firestore
-      const userDocRef = doc(db, "users", email); // Assuming the users are stored in the "users" collection
-      const userDocSnap = await getDoc(userDocRef);
+      const { data, error } = await supabase
+        .from("users")
+        .select("scrutiny_common")
+        .eq("email", email)
+        .maybeSingle();
 
-      if (userDocSnap.exists()) {
-        const scrutiny_common = userDocSnap.data().scrutiny_common; // Get the department field
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        const scrutiny_common = data.scrutiny_common;
         console.log("User scrutiny_common:", scrutiny_common);
         return scrutiny_common; // Return the department value
       } else {
@@ -204,34 +242,9 @@ export const getUserScrutinyCommon = async (email) => {
 
 export const getSubmissionsByTeacher = async (email) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const q = query(collectionRef, where("uploadedBy", "==", email));
-    const querySnapshot = await getDocs(q);
-
-    return querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-
-      // Check if `uploadedAt` exists and is a Firestore timestamp
-      const uploadedAt = data.uploadedAt;
-      let date = null;
-      let time = null;
-
-      if (uploadedAt && uploadedAt.seconds) {
-        // Convert Firestore Timestamp to a Date object
-        const dateObj = new Date(uploadedAt.seconds * 1000); // seconds to milliseconds
-
-        // Format the date and time
-        date = dateObj.toLocaleDateString(); // e.g., "1/19/2025"
-        time = dateObj.toLocaleTimeString(); // e.g., "2:45:30 PM"
-      }
-
-      return {
-        id: doc.id,
-        ...data,
-        date, // Adds the formatted date
-        time, // Adds the formatted time
-      };
-    });
+    return await fetchUploads(
+      supabase.from("uploads").eq("uploaded_by", email)
+    );
   } catch (error) {
     console.error("Error fetching filtered submissions:", error);
     throw error;
@@ -239,34 +252,7 @@ export const getSubmissionsByTeacher = async (email) => {
 };
 export const getSubmissionsByDepartment = async (department) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const q = query(collectionRef, where("dept", "==", department));
-    const querySnapshot = await getDocs(q);
-
-    return querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-
-      // Check if `uploadedAt` exists and is a Firestore timestamp
-      const uploadedAt = data.uploadedAt;
-      let date = null;
-      let time = null;
-
-      if (uploadedAt && uploadedAt.seconds) {
-        // Convert Firestore Timestamp to a Date object
-        const dateObj = new Date(uploadedAt.seconds * 1000); // seconds to milliseconds
-
-        // Format the date and time
-        date = dateObj.toLocaleDateString(); // e.g., "1/19/2025"
-        time = dateObj.toLocaleTimeString(); // e.g., "2:45:30 PM"
-      }
-
-      return {
-        id: doc.id,
-        ...data,
-        date, // Adds the formatted date
-        time, // Adds the formatted time
-      };
-    });
+    return await fetchUploads(supabase.from("uploads").eq("dept", department));
   } catch (error) {
     console.error("Error fetching filtered submissions:", error);
     throw error;
@@ -275,37 +261,16 @@ export const getSubmissionsByDepartment = async (department) => {
 
 export const getSubmissionsBySharedDepartment = async (userDepartment) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const q = query(
-      collectionRef,
-      where("shared", "array-contains", userDepartment)
-    );
-    const querySnapshot = await getDocs(q);
+    const { data, error } = await supabase
+      .from("uploads")
+      .select(uploadSelect)
+      .contains("shared", [userDepartment]);
 
-    return querySnapshot.docs.map((doc) => {
-      const data = doc.data();
+    if (error) {
+      throw error;
+    }
 
-      // Check if `uploadedAt` exists and is a Firestore timestamp
-      const uploadedAt = data.uploadedAt;
-      let date = null;
-      let time = null;
-
-      if (uploadedAt && uploadedAt.seconds) {
-        // Convert Firestore Timestamp to a Date object
-        const dateObj = new Date(uploadedAt.seconds * 1000); // seconds to milliseconds
-
-        // Format the date and time
-        date = dateObj.toLocaleDateString(); // e.g., "1/19/2025"
-        time = dateObj.toLocaleTimeString(); // e.g., "2:45:30 PM"
-      }
-
-      return {
-        id: doc.id,
-        ...data,
-        date, // Adds the formatted date
-        time, // Adds the formatted time
-      };
-    });
+    return (data ?? []).map(mapUploadRow);
   } catch (error) {
     console.error("Error fetching submissions by shared department:", error);
     throw error;
@@ -320,14 +285,22 @@ export const getSubmissionsBySharedDepartment = async (userDepartment) => {
  */
 export const provideFeedback = async (id, feedbackText, scrutinyReport) => {
   try {
-    const docRef = doc(db, "uploads", id); // Ensure "uploads" is your correct collection name
+    const currentSubmission = await getBySubmissionId(id);
+    const feedbackList = normalizeArray(currentSubmission?.feedback);
 
-    // Update the document
-    await updateDoc(docRef, {
-      status: "Rejected",
-      feedback: arrayUnion(feedbackText), // This now works correctly
-      scrutinyReport: scrutinyReport,
-    });
+    const { error } = await supabase
+      .from("uploads")
+      .update({
+        status: "Rejected",
+        feedback: [...feedbackList, feedbackText],
+        scrutiny_report:
+          scrutinyReport ?? currentSubmission?.scrutinyReport ?? null,
+      })
+      .eq("id", id);
+
+    if (error) {
+      throw error;
+    }
   } catch (error) {
     console.error("Error providing feedback:", error);
     throw error;
@@ -342,14 +315,20 @@ export const provideFeedback = async (id, feedbackText, scrutinyReport) => {
  */
 export const approveSubmission = async (id, scrutinyReport) => {
   try {
-    const docRef = doc(db, "uploads", id);
+    const currentSubmission = await getBySubmissionId(id);
+    const { error } = await supabase
+      .from("uploads")
+      .update({
+        status: "Approved",
+        approved_at: new Date().toISOString(),
+        scrutiny_report:
+          scrutinyReport ?? currentSubmission?.scrutinyReport ?? null,
+      })
+      .eq("id", id);
 
-    // This is correct because serverTimestamp() is a top-level field.
-    await updateDoc(docRef, {
-      status: "Approved",
-      approvedAt: serverTimestamp(),
-      scrutinyReport: scrutinyReport,
-    });
+    if (error) {
+      throw error;
+    }
   } catch (error) {
     console.error("Error approving submission:", error);
     throw error;
@@ -382,18 +361,15 @@ const extractName = (email) => {
 
 export const getAllUsers = async () => {
   try {
-    const usersCollectionRef = collection(db, "users");
-    const querySnapshot = await getDocs(usersCollectionRef);
+    const { data, error } = await supabase
+      .from("users")
+      .select("id,email,name,department,role,scrutiny,scrutiny_common");
 
-    const users = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        email: data.email || "unknown@example.com", // Ensure email exists
-        name: extractName(data.email), // Extract name from email
-        department: data.department || "Not Assigned", // Provide default department
-      };
-    });
+    if (error) {
+      throw error;
+    }
+
+    const users = (data ?? []).map(mapUserRow);
 
     return users;
   } catch (error) {
@@ -404,13 +380,25 @@ export const getAllUsers = async () => {
 
 export const createUser = async (userId, email, name, department, role) => {
   try {
-    const userDocRef = doc(db, "users", userId);
-    await setDoc(userDocRef, {
-      email,
-      name,
-      department,
-      role,
-    });
+    const { error } = await supabase.from("users").upsert(
+      {
+        id: userId,
+        email,
+        name,
+        department,
+        role,
+        scrutiny: false,
+        scrutiny_common: false,
+      },
+      {
+        onConflict: "email",
+      }
+    );
+
+    if (error) {
+      throw error;
+    }
+
     console.log(`User ${userId} created successfully`);
     return true;
   } catch (error) {
@@ -421,8 +409,12 @@ export const createUser = async (userId, email, name, department, role) => {
 
 export const deleteUser = async (userId) => {
   try {
-    const userDocRef = doc(db, "users", userId);
-    await deleteDoc(userDocRef);
+    const { error } = await supabase.from("users").delete().eq("id", userId);
+
+    if (error) {
+      throw error;
+    }
+
     console.log(`User ${userId} deleted successfully`);
     return true;
   } catch (error) {
@@ -433,33 +425,7 @@ export const deleteUser = async (userId) => {
 
 export const getAllSubmissions = async () => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const querySnapshot = await getDocs(collectionRef);
-
-    const documents = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-
-      // Check if `uploadedAt` exists and is a Firestore timestamp
-      const uploadedAt = data.uploadedAt;
-      let date = null;
-      let time = null;
-
-      if (uploadedAt && uploadedAt.seconds) {
-        // Convert Firestore Timestamp to a Date object
-        const dateObj = new Date(uploadedAt.seconds * 1000); // seconds to milliseconds
-
-        // Format the date and time
-        date = dateObj.toLocaleDateString(); // e.g., "1/19/2025"
-        time = dateObj.toLocaleTimeString(); // e.g., "2:45:30 PM"
-      }
-
-      return {
-        id: doc.id,
-        ...data,
-        date, // Adds the formatted date
-        time, // Adds the formatted time
-      };
-    });
+    const documents = await fetchUploads(supabase.from("uploads"));
 
     console.log("All Submissions:", documents);
     return documents;
@@ -471,34 +437,9 @@ export const getAllSubmissions = async () => {
 
 export const getAllSubmissionsByStatus = async (status) => {
   try {
-    const collectionRef = collection(db, "uploads");
-    const q = query(collectionRef, where("status", "==", status));
-    const querySnapshot = await getDocs(q);
-
-    const documents = querySnapshot.docs.map((doc) => {
-      const data = doc.data();
-
-      // Check if `uploadedAt` exists and is a Firestore timestamp
-      const uploadedAt = data.uploadedAt;
-      let date = null;
-      let time = null;
-
-      if (uploadedAt && uploadedAt.seconds) {
-        // Convert Firestore Timestamp to a Date object
-        const dateObj = new Date(uploadedAt.seconds * 1000); // seconds to milliseconds
-
-        // Format the date and time
-        date = dateObj.toLocaleDateString(); // e.g., "1/19/2025"
-        time = dateObj.toLocaleTimeString(); // e.g., "2:45:30 PM"
-      }
-
-      return {
-        id: doc.id,
-        ...data,
-        date, // Adds the formatted date
-        time, // Adds the formatted time
-      };
-    });
+    const documents = await fetchUploads(
+      supabase.from("uploads").eq("status", status)
+    );
 
     console.log("All Submissions:", documents);
     return documents;

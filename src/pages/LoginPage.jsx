@@ -1,73 +1,47 @@
 import { useState, useEffect } from "react";
-import {
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithEmailAndPassword,
-  signOut,
-  setPersistence,
-  browserLocalPersistence,
-  signInWithRedirect,
-} from "firebase/auth";
-import { getRedirectResult } from "firebase/auth";
-import { auth, db } from "../firebase"; // Firebase configuration
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import { doc, getDoc } from "firebase/firestore";
 import styles from "./LoginPage.module.css";
+import {
+  fetchUserRole,
+  getSessionUser,
+  signInWithEmailPassword,
+  signInWithGoogle,
+  signOutUser,
+} from "../services/supabaseAuth";
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  // Function to fetch user role from Firestore
-  const fetchUserRole = async (email) => {
+  const redirectByRole = async (emailAddress) => {
     try {
-      const userDoc = await getDoc(doc(db, "users", email));
-      if (userDoc.exists()) {
-        return userDoc.data().role; // Return the user's role
+      const userRole = await fetchUserRole(emailAddress);
+
+      if (userRole === "faculty") {
+        navigate("/faculty");
+      } else if (userRole === "admin") {
+        navigate("/admin");
       } else {
-        toast.error("User role not found in Firestore.");
-        return null;
+        toast.error("Unauthorized role.");
+        await signOutUser();
       }
     } catch (error) {
       console.error("Error fetching user role:", error);
       toast.error("Error fetching user role. Please try again.");
-      return null;
     }
   };
 
   useEffect(() => {
     const checkUser = async () => {
-      // Check for the redirect result
       try {
-        const result = await getRedirectResult(auth);
-        if (result && result.user) {
-          const user = result.user;
-          const userRole = await fetchUserRole(user.email);
-
-          if (userRole === "faculty") {
-            navigate("/faculty");
-          } else if (userRole === "admin") {
-            navigate("/admin");
-          } else {
-            toast.error("Unauthorized role.");
-            await signOut(auth);
-          }
+        const user = await getSessionUser();
+        if (user?.email) {
+          await redirectByRole(user.email);
         }
       } catch (error) {
-        console.error("Error handling redirect:", error);
-      }
-
-      // Check if user is already logged in
-      const user = auth.currentUser;
-      if (user) {
-        const role = await fetchUserRole(user.email);
-        if (role === "faculty") {
-          navigate("/faculty");
-        } else if (role === "admin") {
-          navigate("/admin");
-        }
+        console.error("Error checking existing session:", error);
       }
     };
 
@@ -76,27 +50,11 @@ const LoginPage = () => {
 
   // Google Sign-In
   const handleGoogleSignIn = async () => {
-    const provider = new GoogleAuthProvider();
     try {
-      await setPersistence(auth, browserLocalPersistence); // Ensure persistence
-      const result = await signInWithPopup(auth, provider);
+      const { error } = await signInWithGoogle();
 
-      const user = result.user;
-      if (!user) throw new Error("No user information returned.");
-
-      // Fetch user role from Firestore
-      const userRole = await fetchUserRole(user.email);
-
-      console.log("User Email:", user);
-      console.log("User Role:", userRole);
-
-      if (userRole === "faculty") {
-        navigate("/faculty");
-      } else if (userRole === "admin") {
-        navigate("/admin");
-      } else {
-        toast.error("Unauthorized role.");
-        await signOut(auth); // Sign out unauthorized users
+      if (error) {
+        throw error;
       }
     } catch (error) {
       console.error("Error during Google Sign-In:", error);
@@ -108,27 +66,21 @@ const LoginPage = () => {
   const handleEmailPasswordLogin = async (e) => {
     e.preventDefault();
     try {
-      await setPersistence(auth, browserLocalPersistence); // Ensure persistence
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      const user = result.user;
-      if (!user) throw new Error("No user information returned.");
+      const { data, error } = await signInWithEmailPassword(email, password);
 
-      const userRole = await fetchUserRole(email);
-      console.log("roleee:", userRole);
-      if (userRole === "faculty") {
-        navigate("/faculty");
-      } else if (userRole === "admin") {
-        navigate("/admin");
+      if (error) {
+        throw error;
+      }
+
+      if (data?.user?.email) {
+        await redirectByRole(data.user.email);
       } else {
-        toast.error("Unauthorized role.");
-        await signOut(auth); // Sign out unauthorized users
+        toast.error("Login failed. Please check your credentials.");
       }
     } catch (error) {
       console.error("Error during Email/Password Login:", error);
-      if (error.code === "auth/user-not-found") {
-        toast.error("User not found. Please check your email.");
-      } else if (error.code === "auth/wrong-password") {
-        toast.error("Invalid password. Please try again.");
+      if (error.message?.toLowerCase().includes("invalid login credentials")) {
+        toast.error("Invalid email or password. Please try again.");
       } else {
         toast.error("Login failed. Please check your credentials.");
       }
@@ -231,6 +183,14 @@ const LoginPage = () => {
             <div className={styles.googleIcon}></div>
             <span>Sign in with Google</span>
           </div>
+
+          <button
+            type="button"
+            className={styles.LoginBtn}
+            onClick={() => navigate("/register")}
+          >
+            Create faculty account
+          </button>
         </form>
       </div>
     </div>

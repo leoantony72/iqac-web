@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage.jsx";
 import TeacherDashboard from "./pages/TeacherDashboard.jsx";
 import TeacherFeedback from "./pages/TeacherFeedback.jsx";
 // import AdminDashboard from "./pages/AdminDashboard"; // Admin dashboard page
@@ -8,8 +9,6 @@ import Dashboard from "./pages/Dashboard";
 import NoteEditor from "./pages/Upload.jsx";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useState, useEffect } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebase"; // Your Firebase config
 import UnAuthorized from "./pages/UnAuthorized";
 import "./App.css";
 import { SelectMembersPage } from "./pages/SelectMembers.jsx";
@@ -18,20 +17,31 @@ import ScrutinyDashboard from "./pages/ScrutinyDashboard.jsx";
 import ScrutinyApproval from "./pages/ScrutinyApproval.jsx";
 import AddUser from "./pages/AddUser.jsx";
 import CreateFaculty from "./pages/CreateFaculty.jsx";
+import { getSessionUser } from "./services/supabaseAuth";
 
 const App = () => {
-  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listen for auth state changes
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false); // Stop loading once the auth state is determined
-    });
+    let isMounted = true;
 
-    // Cleanup listener on unmount
-    return () => unsubscribe();
+    const initializeSession = async () => {
+      try {
+        await getSessionUser();
+      } catch (error) {
+        console.error("Error loading Supabase session:", error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    initializeSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   if (loading) {
@@ -47,6 +57,7 @@ const App = () => {
     <Router>
       <Routes>
         <Route path="/" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route
           path="/faculty"
           element={

@@ -1,12 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import styles from "./TeacherFeedback.module.css";
-import { db, auth, storage } from "../firebase"; // Ensure storage is imported for re-uploads
-import { doc, updateDoc } from "firebase/firestore";
-import {
-  ref as storageRef,
-  uploadBytes,
-  getDownloadURL,
-} from "firebase/storage";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import { Worker, Viewer } from "@react-pdf-viewer/core";
@@ -17,7 +10,9 @@ import {
   departmentsList,
 } from "../services/questionPaperService.js";
 import { FeedbackMessage } from "../components/FeedbackMessage.jsx";
-import { v4 as uuidv4 } from "uuid";
+import { getSessionUser } from "../services/supabaseAuth";
+import { supabase } from "../lib/supabase";
+import { uploadPdfToStorage } from "../services/storageService";
 
 // Helper to extract the user's first name from email
 const extractName = (email) => {
@@ -74,6 +69,7 @@ export const TeacherFeedback = () => {
   const [fileURLB, setFileURLB] = useState(null);
   const [loading, setLoading] = useState(false);
   const [initialData, setInitialData] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const isRejected = status === "Rejected";
 
@@ -109,6 +105,19 @@ export const TeacherFeedback = () => {
     fetchSubmissionData();
   }, [id, navigate]);
 
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await getSessionUser();
+        setCurrentUser(user);
+      } catch (error) {
+        console.error("Error fetching current user:", error);
+      }
+    };
+
+    fetchUser();
+  }, []);
+
   const handleFileChange = (e, setFile, setURL) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile && selectedFile.type === "application/pdf") {
@@ -136,40 +145,39 @@ export const TeacherFeedback = () => {
     }
     setLoading(true);
     try {
-      const docRef = doc(db, "uploads", id);
       const updateData = {
         subjectCode,
-        courseName: subjectName,
+        course_name: subjectName,
         dept: department,
         year,
         semester,
         shared: sharedDepartments,
         status: "Pending",
-        uploadedAt: new Date(),
+        uploaded_at: new Date().toISOString(),
       };
 
       if (isRejected) {
         // Re-upload files only if the status was rejected
-        const fileId = uuidv4();
-
         // Upload Set A
-        const fileExtensionA = fileA.name.split(".").pop();
-        const fileNameA = `${fileId}-A.${fileExtensionA}`;
-        const storageRefA = storageRef(storage, `uploads/${fileNameA}`);
-        await uploadBytes(storageRefA, fileA);
-        updateData.fileURLA = await getDownloadURL(storageRefA);
-        updateData.fileNameA = fileNameA;
+        const uploadedFileA = await uploadPdfToStorage(fileA);
+        updateData.file_url_a = uploadedFileA.fileUrl;
+        updateData.file_name_a = uploadedFileA.fileName;
 
         // Upload Set B
-        const fileExtensionB = fileB.name.split(".").pop();
-        const fileNameB = `${fileId}-B.${fileExtensionB}`;
-        const storageRefB = storageRef(storage, `uploads/${fileNameB}`);
-        await uploadBytes(storageRefB, fileB);
-        updateData.fileURLB = await getDownloadURL(storageRefB);
-        updateData.fileNameB = fileNameB;
+        const uploadedFileB = await uploadPdfToStorage(fileB);
+        updateData.file_url_b = uploadedFileB.fileUrl;
+        updateData.file_name_b = uploadedFileB.fileName;
       }
 
-      await updateDoc(docRef, updateData);
+      const { error } = await supabase
+        .from("uploads")
+        .update(updateData)
+        .eq("id", id);
+
+      if (error) {
+        throw error;
+      }
+
       toast.success("Submission updated successfully!");
       navigate("/faculty");
     } catch (error) {
@@ -193,7 +201,7 @@ export const TeacherFeedback = () => {
       <div className={styles.header}>
         <h1 className={styles.title}>Submission Details</h1>{" "}
         <h2 className={styles.userName}>
-          Welcome, {extractName(auth.currentUser?.email)}
+          Welcome, {extractName(currentUser?.email)}
         </h2>{" "}
       </div>{" "}
       <form className={styles.contentGrid} onSubmit={handleSubmit}>

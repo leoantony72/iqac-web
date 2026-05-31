@@ -2,17 +2,16 @@ import React, { useState, useEffect } from "react";
 import styles from "./TeacherDashboard.module.css";
 import { SubjectRow } from "../components/SubjectRow";
 import { STATUS_COLORS, BUTTON_COLORS } from "./types";
-import { signOut } from "firebase/auth";
-import { auth } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   getSubmissionsByDepartment,
   getUserDepartment,
   getUserScrutinyCommon,
-  getSubmissionsBySharedDepartment
+  getSubmissionsBySharedDepartment,
 } from "../services/questionPaperService";
 import { Sidebar } from "../components/Sidebar";
+import { getSessionUser, signOutUser } from "../services/supabaseAuth";
 
 const extractName = (email) => {
   if (!email || typeof email !== "string") {
@@ -35,7 +34,11 @@ export const ScrutinyDashboard = () => {
   useEffect(() => {
     const fetchSubmissions = async () => {
       try {
-        const email = auth.currentUser.email;
+        const user = await getSessionUser();
+        const email = user?.email;
+        if (!email) {
+          return;
+        }
         const dept = await getUserDepartment(email);
 
         // Fetch submissions where 'dept' matches the user's department
@@ -61,7 +64,7 @@ export const ScrutinyDashboard = () => {
     };
 
     fetchSubmissions();
-  }, [auth.currentUser.email]);
+  }, []);
 
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
@@ -98,9 +101,8 @@ export const ScrutinyDashboard = () => {
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth); // Sign out the user
+      await signOutUser();
       navigate("/", { replace: true });
-      window.location.reload(); // Redirect to login page
       toast.success("You have been signed out!");
     } catch (error) {
       console.error("Error during sign out:", error);

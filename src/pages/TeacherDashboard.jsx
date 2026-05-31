@@ -2,18 +2,11 @@ import React, { useState, useEffect } from "react";
 import styles from "./TeacherDashboard.module.css";
 import { SubjectRow } from "../components/SubjectRow";
 import { STATUS_COLORS, BUTTON_COLORS } from "./types";
-
-// for signout function
-import { signOut } from "firebase/auth";
-
-import { db, auth } from "../firebase"; // Firebase configuration
-import { addDoc, collection } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import {
-  getSubmissionsByTeacher
-} from "../services/questionPaperService";
+import { getSubmissionsByTeacher } from "../services/questionPaperService";
 import { Sidebar } from "../components/Sidebar";
+import { getSessionUser, signOutUser } from "../services/supabaseAuth";
 
 const extractName = (email) => {
   if (!email || typeof email !== "string") {
@@ -42,12 +35,17 @@ export const TeacherDashboard = () => {
   useEffect(() => {
     const fetchSubmissions = async () => {
       try {
-        // await updateUserRole(auth.currentUser.email)
-        const data = await getSubmissionsByTeacher(auth.currentUser.email);
-        //console.log("TEST appproved:",await getSubmissionsByStausAndEmail(auth.currentUser.email,"Approved"))
-        console.log(auth.currentUser);
+        const user = await getSessionUser();
 
-        console.log(extractName(auth.currentUser.email));
+        if (!user?.email) {
+          return;
+        }
+
+        const data = await getSubmissionsByTeacher(user.email);
+
+        console.log(user);
+
+        console.log(extractName(user.email));
 
         console.log("Previous teacher data: ", data);
         setSubmissions(data);
@@ -82,7 +80,6 @@ export const TeacherDashboard = () => {
     return matchesSearch && matchesFilter;
   });
 
-
   const getStatus = (status) => {
     if (status === "Pending") {
       return <h3 className={styles.orange}>Pending</h3>;
@@ -113,9 +110,8 @@ export const TeacherDashboard = () => {
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth); // Sign out the user
+      await signOutUser();
       navigate("/", { replace: true });
-      window.location.reload(); // Redirect to login page
       toast.success("You have been signed out!");
     } catch (error) {
       console.error("Error during sign out:", error);

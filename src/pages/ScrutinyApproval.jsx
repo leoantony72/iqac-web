@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import styles from "./ScrutinyApproval.module.css";
-import { auth } from "../firebase"; // Firebase configuration
 import { useSendRejectionEmail } from "../services/emailService";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -15,6 +14,7 @@ import {
 import { FeedbackMessage } from "../components/FeedbackMessage.jsx";
 import { PDFDocument, StandardFonts, PDFTextField } from "pdf-lib";
 import formUrl from "./modified_scrutiny.pdf";
+import { getSessionUser } from "../services/supabaseAuth";
 
 // --- Helper Functions & Constants ---
 const extractName = (email) => {
@@ -112,6 +112,7 @@ export const ScrutinyApproval = () => {
   const [year, setYear] = useState("");
   const [fileURLA, setFileURLA] = useState(null);
   const [fileURLB, setFileURLB] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
 
   // ✅ default state with remark
   const defaultChecklistState = scrutinyChecklistItems.map(() => ({
@@ -169,6 +170,19 @@ export const ScrutinyApproval = () => {
     fetchSubmissionData();
   }, [id]);
 
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await getSessionUser();
+        setCurrentUser(user);
+      } catch (error) {
+        console.error("Error fetching current user:", error);
+      }
+    };
+
+    fetchUser();
+  }, []);
+
   const handleRadioChange = (checklistType, position, status, remark) => {
     const updater = (prev) =>
       prev.map((item, index) =>
@@ -224,7 +238,7 @@ export const ScrutinyApproval = () => {
       form.getField("name_of_the_qp_setter").setText(facultyEmail, fontOptions);
       form
         .getField("name_of_the_qp_scrutinizer")
-        .setText(extractName(auth.currentUser?.email), fontOptions);
+        .setText(extractName(currentUser?.email), fontOptions);
       form
         .getField("semester_&_branch")
         .setText(`${semester} / ${department}`, fontOptions);

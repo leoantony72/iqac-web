@@ -1,8 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import styles from "./Upload.module.css";
-import { db, auth, storage } from "../firebase"; // Firebase configuration
-import { addDoc, collection } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { Worker, Viewer } from "@react-pdf-viewer/core"; // Import PDF Viewer
@@ -12,7 +9,9 @@ import {
   departmentsList,
   getUserDepartment,
 } from "../services/questionPaperService";
-import { v4 as uuidv4 } from "uuid";
+import { getSessionUser } from "../services/supabaseAuth";
+import { supabase } from "../lib/supabase";
+import { uploadPdfToStorage } from "../services/storageService";
 
 // (No changes to extractName and DropdownField components)
 const extractName = (email) => {
@@ -54,14 +53,26 @@ const dropdownData = [
   {
     title: "Semester",
     options: [
-      { value: "1" }, { value: "2" }, { value: "3" }, { value: "4" },
-      { value: "5" }, { value: "6" }, { value: "7" }, { value: "8" },
+      { value: "1" },
+      { value: "2" },
+      { value: "3" },
+      { value: "4" },
+      { value: "5" },
+      { value: "6" },
+      { value: "7" },
+      { value: "8" },
     ],
   },
 ];
 
 // NEW: Reusable component for file upload sections to keep code DRY
-const FileUploadSection = ({ title, fileURL, onUploadClick, onFileChange, inputRef }) => {
+const FileUploadSection = ({
+  title,
+  fileURL,
+  onUploadClick,
+  onFileChange,
+  inputRef,
+}) => {
   return (
     <div className={styles.previewSection}>
       <h2 className={styles.previewTitle}>{title}</h2>
@@ -109,19 +120,27 @@ export const NoteEditor = () => {
   const [fileURLA, setFileURLA] = useState(null);
   const [fileB, setFileB] = useState(null);
   const [fileURLB, setFileURLB] = useState(null);
-  
+  const [currentUser, setCurrentUser] = useState(null);
+
   const [loading, setLoading] = useState(false);
 
   // MODIFIED: Refs for two file inputs
   const fileInputRefA = useRef(null);
   const fileInputRefB = useRef(null);
-  
+
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchUserDepartment = async () => {
       try {
-        const userDept = await getUserDepartment(auth.currentUser.email);
+        const user = await getSessionUser();
+        setCurrentUser(user);
+
+        if (!user?.email) {
+          return;
+        }
+
+        const userDept = await getUserDepartment(user.email);
         setDepartment(userDept);
       } catch (error) {
         console.error("Error fetching department:", error);
@@ -130,7 +149,7 @@ export const NoteEditor = () => {
     };
     fetchUserDepartment();
   }, []);
-  
+
   // (No changes to handleDropdownChange)
   const handleDropdownChange = (title, value) => {
     setDropdownValues((prev) => ({ ...prev, [title]: value }));
@@ -149,23 +168,25 @@ export const NoteEditor = () => {
     const selectedFile = e.target.files[0];
     if (selectedFile && selectedFile.type === "application/pdf") {
       const fileUrl = URL.createObjectURL(selectedFile);
-      if (fileSet === 'A') {
+      if (fileSet === "A") {
         setFileA(selectedFile);
         setFileURLA(fileUrl);
-      } else { // fileSet === 'B'
+      } else {
+        // fileSet === 'B'
         setFileB(selectedFile);
         setFileURLB(fileUrl);
       }
     } else {
-        toast.error("Please select a valid PDF file.");
+      toast.error("Please select a valid PDF file.");
     }
   };
-  
+
   // MODIFIED: Triggers the correct file input click
   const handleFileUpload = (fileSet) => {
-    if (fileSet === 'A') {
+    if (fileSet === "A") {
       fileInputRefA.current.click();
-    } else { // fileSet === 'B'
+    } else {
+      // fileSet === 'B'
       fileInputRefB.current.click();
     }
   };
@@ -175,52 +196,49 @@ export const NoteEditor = () => {
 
     // MODIFIED: Validate both files are selected
     if (!subjectName || !subjectCode || !fileA || !fileB) {
-      toast.error("Please fill out all required fields and upload both Set A and Set B files.");
+      toast.error(
+        "Please fill out all required fields and upload both Set A and Set B files."
+      );
       return;
     }
 
     setLoading(true);
     try {
-      const fileId = uuidv4(); // Generate a single unique ID for the pair
-
       // --- Upload File A ---
-      const fileExtensionA = fileA.name.split(".").pop();
-      const fileNameA = `${fileId}-A.${fileExtensionA}`;
-      const storageRefA = ref(storage, `uploads/${fileNameA}`);
-      await uploadBytes(storageRefA, fileA);
-      const downloadURLA = await getDownloadURL(storageRefA);
+      const uploadedFileA = await uploadPdfToStorage(fileA);
 
       // --- Upload File B ---
-      const fileExtensionB = fileB.name.split(".").pop();
-      const fileNameB = `${fileId}-B.${fileExtensionB}`;
-      const storageRefB = ref(storage, `uploads/${fileNameB}`);
-      await uploadBytes(storageRefB, fileB);
-      const downloadURLB = await getDownloadURL(storageRefB);
+      const uploadedFileB = await uploadPdfToStorage(fileB);
 
-      // MODIFIED: Add both file details to the Firestore document
-      const docRef = await addDoc(collection(db, "uploads"), {
-        subjectCode,
-        courseName: subjectName,
-        description,
-        teacherName: extractName(auth.currentUser.email),
-        uploadedBy: auth.currentUser.email,
-        status: "Pending",
-        dept: department,
-        shared: sharedDepartment,
-        year: dropdownValues.Year,
-        semester: dropdownValues.Semester,
-        uploadedAt: new Date(),
-        // Fields for Set A
-        fileNameA, 
-        fileURLA: downloadURLA,
-        // Fields for Set B
-        fileNameB,
-        fileURLB: downloadURLB,
-      });
+      const { data, error } = await supabase
+        .from("uploads")
+        .insert({
+          subjectCode,
+          course_name: subjectName,
+          description,
+          teacher_name: extractName(currentUser?.email),
+          uploaded_by: currentUser?.email,
+          status: "Pending",
+          dept: department,
+          shared: sharedDepartment,
+          year: dropdownValues.Year,
+          semester: dropdownValues.Semester,
+          uploaded_at: new Date().toISOString(),
+          file_name_a: uploadedFileA.fileName,
+          file_url_a: uploadedFileA.fileUrl,
+          file_name_b: uploadedFileB.fileName,
+          file_url_b: uploadedFileB.fileUrl,
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        throw error;
+      }
 
       toast.success("Files uploaded successfully!");
-      console.log("Document written with ID: ", docRef.id);
-      
+      console.log("Document written with ID: ", data.id);
+
       // MODIFIED: Reset all states including both files
       setSubjectCode("");
       setSubjectName("");
@@ -232,7 +250,6 @@ export const NoteEditor = () => {
       setFileURLB(null);
 
       navigate("/faculty");
-
     } catch (error) {
       console.error("Error uploading files:", error);
       toast.error("Upload failed. Please try again.");
@@ -246,25 +263,24 @@ export const NoteEditor = () => {
       <form onSubmit={handleSubmit}>
         <div className={styles.contentWrapper}>
           <h1 className={styles.userName}>
-            Welcome, {extractName(auth.currentUser.email)}
+            Welcome, {extractName(currentUser?.email)}
           </h1>
           <div className={styles.mainContent}>
             <div className={styles.contentGrid}>
-              
               {/* MODIFIED: The left column now contains two upload sections */}
               <div className={styles.previewColumn}>
                 <FileUploadSection
                   title="Set A"
                   fileURL={fileURLA}
-                  onUploadClick={() => handleFileUpload('A')}
-                  onFileChange={(e) => handleFileChange(e, 'A')}
+                  onUploadClick={() => handleFileUpload("A")}
+                  onFileChange={(e) => handleFileChange(e, "A")}
                   inputRef={fileInputRefA}
                 />
                 <FileUploadSection
                   title="Set B"
                   fileURL={fileURLB}
-                  onUploadClick={() => handleFileUpload('B')}
-                  onFileChange={(e) => handleFileChange(e, 'B')}
+                  onUploadClick={() => handleFileUpload("B")}
+                  onFileChange={(e) => handleFileChange(e, "B")}
                   inputRef={fileInputRefB}
                 />
               </div>
@@ -273,21 +289,48 @@ export const NoteEditor = () => {
               <div className={styles.detailsColumn}>
                 <div className={styles.detailsSection}>
                   <h2 className={styles.detailsTitle}>Details</h2>
-                  
+
                   {/* Field Groups for Subject Title, Code, Department */}
                   <div className={styles.formGroup}>
-                    <label htmlFor="subjectName" className={styles.formLabel}>Subject Title:</label>
-                    <input id="subjectName" type="text" value={subjectName} onChange={(e) => setSubjectName(e.target.value)} className={styles.formInput} required />
+                    <label htmlFor="subjectName" className={styles.formLabel}>
+                      Subject Title:
+                    </label>
+                    <input
+                      id="subjectName"
+                      type="text"
+                      value={subjectName}
+                      onChange={(e) => setSubjectName(e.target.value)}
+                      className={styles.formInput}
+                      required
+                    />
                   </div>
                   <div className={styles.formGroup}>
-                    <label htmlFor="subjectCode" className={styles.formLabel}>Subject Code:</label>
-                    <input id="subjectCode" type="text" value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)} className={styles.formInput} required />
+                    <label htmlFor="subjectCode" className={styles.formLabel}>
+                      Subject Code:
+                    </label>
+                    <input
+                      id="subjectCode"
+                      type="text"
+                      value={subjectCode}
+                      onChange={(e) => setSubjectCode(e.target.value)}
+                      className={styles.formInput}
+                      required
+                    />
                   </div>
                   <div className={styles.formGroup}>
-                    <label htmlFor="department" className={styles.formLabel}>Department:</label>
-                    <input id="department" type="text" value={department} className={styles.formInput} required readOnly />
+                    <label htmlFor="department" className={styles.formLabel}>
+                      Department:
+                    </label>
+                    <input
+                      id="department"
+                      type="text"
+                      value={department}
+                      className={styles.formInput}
+                      required
+                      readOnly
+                    />
                   </div>
-                  
+
                   {/* Dropdown Row */}
                   <div className={styles.dropdownRow}>
                     {dropdownData.map((dropdown, index) => (
@@ -296,7 +339,9 @@ export const NoteEditor = () => {
                         title={dropdown.title}
                         options={dropdown.options}
                         selectedValue={dropdownValues[dropdown.title]}
-                        onChange={(value) => handleDropdownChange(dropdown.title, value)}
+                        onChange={(value) =>
+                          handleDropdownChange(dropdown.title, value)
+                        }
                       />
                     ))}
                   </div>
@@ -307,22 +352,39 @@ export const NoteEditor = () => {
                     <div className={styles.sharedDepartmentsContainer}>
                       {sharedDepartment.length > 0 ? (
                         sharedDepartment.map((dept, index) => (
-                          <div key={index} className={styles.sharedDepartmentTag}>
+                          <div
+                            key={index}
+                            className={styles.sharedDepartmentTag}
+                          >
                             {dept}
-                            <button type="button" className={styles.removeButton} onClick={() => setSharedDepartment((prev) => prev.filter((item) => item !== dept))}>
+                            <button
+                              type="button"
+                              className={styles.removeButton}
+                              onClick={() =>
+                                setSharedDepartment((prev) =>
+                                  prev.filter((item) => item !== dept)
+                                )
+                              }
+                            >
                               &times;
                             </button>
                           </div>
                         ))
                       ) : (
-                        <span className={styles.noSelectionText}>No other departments selected</span>
+                        <span className={styles.noSelectionText}>
+                          No other departments selected
+                        </span>
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Form Actions */}
                   <div className={styles.formActions}>
-                    <button type="submit" disabled={loading} className={styles.sendButton}>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className={styles.sendButton}
+                    >
                       {loading ? "Uploading..." : "Send"}
                     </button>
                   </div>

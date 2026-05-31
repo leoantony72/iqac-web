@@ -3,16 +3,12 @@ import { DropdownField } from "../components/DropdownFiled";
 import { MemberTable } from "../components/MemberTable";
 import styles from "./SelectMembers.module.css";
 import { Sidebar } from "../components/Sidebar";
-import { db } from "../firebase";
-import { departmentsList } from "../services/questionPaperService";
-import { collection, getDocs, writeBatch, doc } from "firebase/firestore";
+import { departmentsList, getAllUsers } from "../services/questionPaperService";
+import { supabase } from "../lib/supabase";
 
 // Create a new array with "All Departments" as the default option
 // const departmentOptions = ["All Departments", ...departmentsList];
-const departmentOptions = [
-  "All Departments",
-  ...departmentsList,
-];
+const departmentOptions = ["All Departments", ...departmentsList];
 
 export const SelectMembersPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -25,11 +21,7 @@ export const SelectMembersPage = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const querySnapshot = await getDocs(collection(db, "users"));
-        const usersList = querySnapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
+        const usersList = await getAllUsers();
 
         // Check scrutiny_common for common subjects
         const initiallySelected =
@@ -70,20 +62,25 @@ export const SelectMembersPage = () => {
 
   const handleSubmit = async () => {
     try {
-      const batch = writeBatch(db);
+      const fieldName =
+        selectedDepartment === "Common Subjects"
+          ? "scrutiny_common"
+          : "scrutiny";
 
-      users.forEach((user) => {
-        const userDocRef = doc(db, "users", user.id);
-        const shouldBeSelected = selectedUsers.includes(user.email);
+      const updates = users.map((user) =>
+        supabase
+          .from("users")
+          .update({ [fieldName]: selectedUsers.includes(user.email) })
+          .eq("email", user.email)
+      );
 
-        batch.update(userDocRef, {
-          [selectedDepartment === "Common Subjects"
-            ? "scrutiny_common"
-            : "scrutiny"]: shouldBeSelected,
-        });
-      });
+      const results = await Promise.all(updates);
+      const failedUpdate = results.find((result) => result.error);
 
-      await batch.commit();
+      if (failedUpdate) {
+        throw failedUpdate.error;
+      }
+
       alert("Scrutiny status updated successfully!");
     } catch (error) {
       console.error("Error updating scrutiny status:", error);

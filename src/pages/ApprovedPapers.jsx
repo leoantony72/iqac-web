@@ -2,13 +2,11 @@ import React, { useState, useEffect } from "react";
 import styles from "./TeacherDashboard.module.css";
 import { SubjectRow } from "../components/SubjectRow";
 import { STATUS_COLORS, BUTTON_COLORS } from "./types";
-import { signOut } from "firebase/auth";
-
-import { auth } from "../firebase"; // Firebase configuration
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { getApprovedSubmissions } from "../services/questionPaperService";
 import { Sidebar } from "../components/Sidebar";
+import { getSessionUser, signOutUser } from "../services/supabaseAuth";
 
 const extractName = (email) => {
   if (!email || typeof email !== "string") {
@@ -31,10 +29,11 @@ export const ApprovedPapers = () => {
   useEffect(() => {
     const fetchSubmissions = async () => {
       try {
+        const user = await getSessionUser();
         const data = await getApprovedSubmissions("Approved");
-        console.log(auth.currentUser);
+        console.log(user);
 
-        console.log(extractName(auth.currentUser.email));
+        console.log(extractName(user?.email));
 
         console.log("Previous teacher data: ", data);
         setSubmissions(data);
@@ -81,9 +80,8 @@ export const ApprovedPapers = () => {
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth); // Sign out the user
+      await signOutUser();
       navigate("/", { replace: true });
-      window.location.reload(); // Redirect to login page
       toast.success("You have been signed out!");
     } catch (error) {
       console.error("Error during sign out:", error);

@@ -2,11 +2,9 @@ import React, { useState, useEffect } from "react";
 import styles from "../pages/TeacherDashboard.module.css";
 import { UserProfile } from "../pages/UserProfile";
 import { StatusItem } from "./StatusItem";
-import { auth, db } from "../firebase"; // Firestore setup
 import { STATUS_COLORS } from "../pages/types";
-import { signOut } from "firebase/auth";
 import { useNavigate, useLocation } from "react-router-dom";
-import { doc, getDoc } from "firebase/firestore"; // Firestore imports
+import { getCurrentUserProfile, signOutUser } from "../services/supabaseAuth";
 
 const extractName = (email) => {
   if (!email || typeof email !== "string") {
@@ -24,30 +22,29 @@ export const Sidebar = ({ submissions }) => {
   const [isScrutiny, setIsScrutiny] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
-  const [dept,setdept] = useState("")
+  const [dept, setDept] = useState("");
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
     const fetchUserRole = async () => {
       try {
-        const user = auth.currentUser.email;
-        if (user) {
-          const userDocRef = doc(db, "users", user);
-          const userDocSnap = await getDoc(userDocRef);
-
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data(); 
-            console.log(userData.department)
-            setdept(userData.department)
-            if (userData.role == "admin") {
-              setIsAdmin(true);
-            }
-            if (userData.scrutiny) setIsScrutiny(true);
-          } else {
-            console.log("No user data found.");
+        const userProfile = await getCurrentUserProfile();
+        setCurrentUser(
+          userProfile
+            ? { email: userProfile.email, photoURL: userProfile.photo_url }
+            : null
+        );
+        if (userProfile) {
+          setDept(userProfile.department || "");
+          if (userProfile.role === "admin") {
+            setIsAdmin(true);
+          }
+          if (userProfile.scrutiny) {
+            setIsScrutiny(true);
           }
         }
       } catch (error) {
-        console.error("Error fetching user role from Firestore:", error);
+        console.error("Error fetching user role from Supabase:", error);
       }
     };
 
@@ -62,9 +59,8 @@ export const Sidebar = ({ submissions }) => {
 
   const handleSignOut = async () => {
     try {
-      await signOut(auth);
+      await signOutUser();
       navigate("/", { replace: true });
-      window.location.reload();
     } catch (error) {
       console.error("Error during sign out:", error);
     }
@@ -74,17 +70,20 @@ export const Sidebar = ({ submissions }) => {
     {
       color: STATUS_COLORS.PENDING,
       label: "Pending",
-      count: (submissions || []).filter((item) => item?.status === "Pending").length,
+      count: (submissions || []).filter((item) => item?.status === "Pending")
+        .length,
     },
     {
       color: STATUS_COLORS.APPROVED,
       label: "Approved",
-      count: (submissions || []).filter((item) => item?.status === "Approved").length,
+      count: (submissions || []).filter((item) => item?.status === "Approved")
+        .length,
     },
     {
       color: STATUS_COLORS.REJECTED,
       label: "Rejected",
-      count: (submissions || []).filter((item) => item?.status === "Rejected").length,
+      count: (submissions || []).filter((item) => item?.status === "Rejected")
+        .length,
     },
   ];
 
@@ -93,15 +92,17 @@ export const Sidebar = ({ submissions }) => {
       <div className={styles.sidebarContent}>
         <div className={styles.username}>IQAC</div>
         <UserProfile
-          name={extractName(auth.currentUser.email)}
-          email={auth.currentUser.email}
+          name={extractName(currentUser?.email)}
+          email={currentUser?.email || ""}
           department={dept}
-          avatar={auth.currentUser.photoURL}
+          avatar={currentUser?.photoURL}
         />
         <nav className={styles.sidebarNav}>
-          {(isScrutiny) && (
+          {isScrutiny && (
             <button
-              className={`${styles.navItem} ${location.pathname === "/scrutiny" ? styles.navItemActive : ""}`}
+              className={`${styles.navItem} ${
+                location.pathname === "/scrutiny" ? styles.navItemActive : ""
+              }`}
               onClick={() => navigate("/scrutiny")}
             >
               {/* <img
@@ -115,21 +116,51 @@ export const Sidebar = ({ submissions }) => {
 
           {isAdmin ? (
             <>
-              <button className={`${styles.navItem} ${location.pathname === "/admin" ? styles.navItemActive : ""}`} onClick={() => navigate("/admin")}>
+              <button
+                className={`${styles.navItem} ${
+                  location.pathname === "/admin" ? styles.navItemActive : ""
+                }`}
+                onClick={() => navigate("/admin")}
+              >
                 <span>Select Scrutiny Members</span>
               </button>
-              <button className={`${styles.navItem} ${location.pathname === "/approved-papers" ? styles.navItemActive : ""}`} onClick={() => navigate("/approved-papers")}>
+              <button
+                className={`${styles.navItem} ${
+                  location.pathname === "/approved-papers"
+                    ? styles.navItemActive
+                    : ""
+                }`}
+                onClick={() => navigate("/approved-papers")}
+              >
                 <span>View Approved Papers</span>
               </button>
-              <button className={`${styles.navItem} ${location.pathname === "/add-user" ? styles.navItemActive : ""}`} onClick={() => navigate("/add-user")}>
+              <button
+                className={`${styles.navItem} ${
+                  location.pathname === "/add-user" ? styles.navItemActive : ""
+                }`}
+                onClick={() => navigate("/add-user")}
+              >
                 <span>Add User</span>
               </button>
-              <button className={`${styles.navItem} ${location.pathname === "/faculty" ? styles.navItemActive : ""}`} onClick={() => navigate("/faculty")}>
+              <button
+                className={`${styles.navItem} ${
+                  location.pathname === "/faculty" ? styles.navItemActive : ""
+                }`}
+                onClick={() => navigate("/faculty")}
+              >
                 <span>Upload Paper</span>
               </button>
             </>
           ) : (
-            <button className={`${styles.navItem} ${location.pathname === "/faculty" ? styles.navItemActive : ""}`} onClick={() => { navigate("/faculty"); setShowStatus(true); }}>
+            <button
+              className={`${styles.navItem} ${
+                location.pathname === "/faculty" ? styles.navItemActive : ""
+              }`}
+              onClick={() => {
+                navigate("/faculty");
+                setShowStatus(true);
+              }}
+            >
               {/* <img
                 src="https://cdn.builder.io/api/v1/image/assets/TEMP/4afa34f9942cce8f2dfa4f565621da02962b9d655c867c56ed7b771382723c2e?placeholderIfAbsent=true&apiKey=2fc17400dcd74914b50bcc9d036de5cf"
                 alt=""
@@ -140,7 +171,10 @@ export const Sidebar = ({ submissions }) => {
           )}
         </nav>
 
-        {showStatus && statusItems.map((item, index) => <StatusItem key={index} {...item} />)}
+        {showStatus &&
+          statusItems.map((item, index) => (
+            <StatusItem key={index} {...item} />
+          ))}
 
         <div className={styles.sidebarFooter}>
           <img
@@ -149,7 +183,7 @@ export const Sidebar = ({ submissions }) => {
             className={styles.footerIcon}
             onClick={handleSignOut}
           />
-          <span>{auth.currentUser.email}</span>
+          <span>{currentUser?.email || ""}</span>
         </div>
       </div>
     </aside>

@@ -1,20 +1,20 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { subscribeToAuthState } from "../services/supabaseAuth";
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
 
-  const login = (credentials) => {
-    const { id, password } = credentials;
+  useEffect(() => {
+    const subscription = subscribeToAuthState((currentUser) => {
+      setUser(currentUser);
+    });
 
-    // Example hardcoded logic for authentication
-    if (id === "admin" && password === "admin") {
-      setUser({ id, role: "admin" });
-      return true;
-    }
-    return false;
-  };
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = () => false;
 
   const logout = () => {
     setUser(null);

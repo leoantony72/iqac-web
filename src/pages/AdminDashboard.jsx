@@ -6,23 +6,22 @@ import {
   getAllSubmissions,
   getAllSubmissionsByStatus,
 } from "../services/questionPaperService";
-import { db, auth } from "../firebase"; // Firebase configuration
-import { addDoc, collection } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import {
   getSubmissionsByTeacher,
   getSubmissionsByStausAndEmail,
 } from "../services/questionPaperService";
-import {signOut} from "firebase/auth";
-import styles from "./AdminDashboard.module.css"
+import { getSessionUser, signOutUser } from "../services/supabaseAuth";
+import { supabase } from "../lib/supabase";
+import styles from "./AdminDashboard.module.css";
+import { uploadPdfToStorage } from "../services/storageService";
 
-
-const extractName =  (email) => {
-  const namePart = email.split('@')[0];
-  const firstName = namePart.split('.')[0];
+const extractName = (email) => {
+  const namePart = email.split("@")[0];
+  const firstName = namePart.split(".")[0];
   return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
-}
+};
 
 const Dashboard = () => {
   const [subjectCode, setSubjectCode] = useState("");
@@ -33,43 +32,123 @@ const Dashboard = () => {
   const [file, setFile] = useState(null);
   const [submissions, setSubmissions] = useState([]);
   const [feedback, setFeedback] = useState({});
+  const [currentUser, setCurrentUser] = useState(null);
   const navigate = useNavigate();
   const [isDropdownVisible1, setIsDropdownVisible1] = useState(true);
   const [isDropdownVisible2, setIsDropdownVisible2] = useState(false);
 
- 
+  const deleteBtn = (
+    <button className={styles.deleteBtn}>
+      <svg
+        viewBox="0 0 1024 1024"
+        class="icon"
+        version="1.1"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="#000000"
+      >
+        <path
+          d="M667.8 362.1H304V830c0 28.2 23 51 51.3 51h312.4c28.4 0 51.4-22.8 51.4-51V362.2h-51.3z"
+          fill="#ffffff"
+        ></path>
+        <path
+          d="M750.3 295.2c0-8.9-7.6-16.1-17-16.1H289.9c-9.4 0-17 7.2-17 16.1v50.9c0 8.9 7.6 16.1 17 16.1h443.4c9.4 0 17-7.2 17-16.1v-50.9z"
+          fill="#ffffff"
+        ></path>
+        <path
+          d="M733.3 258.3H626.6V196c0-11.5-9.3-20.8-20.8-20.8H419.1c-11.5 0-20.8 9.3-20.8 20.8v62.3H289.9c-20.8 0-37.7 16.5-37.7 36.8V346c0 18.1 13.5 33.1 31.1 36.2V830c0 39.6 32.3 71.8 72.1 71.8h312.4c39.8 0 72.1-32.2 72.1-71.8V382.2c17.7-3.1 31.1-18.1 31.1-36.2v-50.9c0.1-20.2-16.9-36.8-37.7-36.8z m-293.5-41.5h145.3v41.5H439.8v-41.5z m-146.2 83.1H729.5v41.5H293.6v-41.5z m404.8 530.2c0 16.7-13.7 30.3-30.6 30.3H355.4c-16.9 0-30.6-13.6-30.6-30.3V382.9h373.6v447.2z"
+          fill="#c81919"
+        ></path>
+        <path
+          d="M511.6 798.9c11.5 0 20.8-9.3 20.8-20.8V466.8c0-11.5-9.3-20.8-20.8-20.8s-20.8 9.3-20.8 20.8v311.4c0 11.4 9.3 20.7 20.8 20.7zM407.8 798.9c11.5 0 20.8-9.3 20.8-20.8V466.8c0-11.5-9.3-20.8-20.8-20.8s-20.8 9.3-20.8 20.8v311.4c0.1 11.4 9.4 20.7 20.8 20.7zM615.4 799.6c11.5 0 20.8-9.3 20.8-20.8V467.4c0-11.5-9.3-20.8-20.8-20.8s-20.8 9.3-20.8 20.8v311.4c0 11.5 9.3 20.8 20.8 20.8z"
+          fill="#c81919"
+        ></path>
+      </svg>
+    </button>
+  );
+  const editBtn = (
+    <button className={styles.editBtn}>
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          fill-rule="evenodd"
+          clip-rule="evenodd"
+          d="M8.56078 20.2501L20.5608 8.25011L15.7501 3.43945L3.75012 15.4395V20.2501H8.56078ZM15.7501 5.56077L18.4395 8.25011L16.5001 10.1895L13.8108 7.50013L15.7501 5.56077ZM12.7501 8.56079L15.4395 11.2501L7.93946 18.7501H5.25012L5.25012 16.0608L12.7501 8.56079Z"
+          fill="#107023"
+        ></path>
+      </svg>
+    </button>
+  );
 
-  const deleteBtn = <button  className={styles.deleteBtn}><svg viewBox="0 0 1024 1024" class="icon" version="1.1" xmlns="http://www.w3.org/2000/svg" fill="#000000"><path d="M667.8 362.1H304V830c0 28.2 23 51 51.3 51h312.4c28.4 0 51.4-22.8 51.4-51V362.2h-51.3z" fill="#ffffff"></path><path d="M750.3 295.2c0-8.9-7.6-16.1-17-16.1H289.9c-9.4 0-17 7.2-17 16.1v50.9c0 8.9 7.6 16.1 17 16.1h443.4c9.4 0 17-7.2 17-16.1v-50.9z" fill="#ffffff"></path><path d="M733.3 258.3H626.6V196c0-11.5-9.3-20.8-20.8-20.8H419.1c-11.5 0-20.8 9.3-20.8 20.8v62.3H289.9c-20.8 0-37.7 16.5-37.7 36.8V346c0 18.1 13.5 33.1 31.1 36.2V830c0 39.6 32.3 71.8 72.1 71.8h312.4c39.8 0 72.1-32.2 72.1-71.8V382.2c17.7-3.1 31.1-18.1 31.1-36.2v-50.9c0.1-20.2-16.9-36.8-37.7-36.8z m-293.5-41.5h145.3v41.5H439.8v-41.5z m-146.2 83.1H729.5v41.5H293.6v-41.5z m404.8 530.2c0 16.7-13.7 30.3-30.6 30.3H355.4c-16.9 0-30.6-13.6-30.6-30.3V382.9h373.6v447.2z" fill="#c81919"></path><path d="M511.6 798.9c11.5 0 20.8-9.3 20.8-20.8V466.8c0-11.5-9.3-20.8-20.8-20.8s-20.8 9.3-20.8 20.8v311.4c0 11.4 9.3 20.7 20.8 20.7zM407.8 798.9c11.5 0 20.8-9.3 20.8-20.8V466.8c0-11.5-9.3-20.8-20.8-20.8s-20.8 9.3-20.8 20.8v311.4c0.1 11.4 9.4 20.7 20.8 20.7zM615.4 799.6c11.5 0 20.8-9.3 20.8-20.8V467.4c0-11.5-9.3-20.8-20.8-20.8s-20.8 9.3-20.8 20.8v311.4c0 11.5 9.3 20.8 20.8 20.8z" fill="#c81919"></path></svg></button>
-  const editBtn = <button  className={styles.editBtn}><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.56078 20.2501L20.5608 8.25011L15.7501 3.43945L3.75012 15.4395V20.2501H8.56078ZM15.7501 5.56077L18.4395 8.25011L16.5001 10.1895L13.8108 7.50013L15.7501 5.56077ZM12.7501 8.56079L15.4395 11.2501L7.93946 18.7501H5.25012L5.25012 16.0608L12.7501 8.56079Z" fill="#107023"></path></svg></button>
- 
-  const submitBtn = (sub)=>{ return (<button onClick={() => handleFeedback(sub.id)} className={styles.submitBtn}>
-    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g id="SVGRepo_bgCarrier" stroke-width="0"></g><g id="SVGRepo_tracerCarrier" stroke-linecap="round" stroke-linejoin="round"></g><g id="SVGRepo_iconCarrier"> <path d="M7.25 7C7.25 7.41421 7.58579 7.75 8 7.75H16C16.4142 7.75 16.75 7.41421 16.75 7C16.75 6.58579 16.4142 6.25 16 6.25H8C7.58579 6.25 7.25 6.58579 7.25 7Z" fill="#ffffff"></path> <path d="M12 17.75C12.4142 17.75 12.75 17.4142 12.75 17V11.8107L14.4697 13.5303C14.7626 13.8232 15.2374 13.8232 15.5303 13.5303C15.8232 13.2374 15.8232 12.7626 15.5303 12.4697L12.5303 9.46967C12.3897 9.32902 12.1989 9.25 12 9.25C11.8011 9.25 11.6103 9.32902 11.4697 9.46967L8.46967 12.4697C8.17678 12.7626 8.17678 13.2374 8.46967 13.5303C8.76256 13.8232 9.23744 13.8232 9.53033 13.5303L11.25 11.8107V17C11.25 17.4142 11.5858 17.75 12 17.75Z" fill="#ffffff"></path> <path fill-rule="evenodd" clip-rule="evenodd" d="M11.9426 1.25C9.63423 1.24999 7.82519 1.24998 6.4137 1.43975C4.96897 1.63399 3.82895 2.03933 2.93414 2.93414C2.03933 3.82895 1.63399 4.96897 1.43975 6.41371C1.24998 7.82519 1.24999 9.63423 1.25 11.9426V12.0574C1.24999 14.3658 1.24998 16.1748 1.43975 17.5863C1.63399 19.031 2.03933 20.1711 2.93414 21.0659C3.82895 21.9607 4.96897 22.366 6.4137 22.5603C7.82519 22.75 9.63423 22.75 11.9426 22.75H12.0574C14.3658 22.75 16.1748 22.75 17.5863 22.5603C19.031 22.366 20.1711 21.9607 21.0659 21.0659C21.9607 20.1711 22.366 19.031 22.5603 17.5863C22.75 16.1748 22.75 14.3658 22.75 12.0574V11.9426C22.75 9.63423 22.75 7.82519 22.5603 6.41371C22.366 4.96897 21.9607 3.82895 21.0659 2.93414C20.1711 2.03933 19.031 1.63399 17.5863 1.43975C16.1748 1.24998 14.3658 1.24999 12.0574 1.25H11.9426ZM3.9948 3.9948C4.56445 3.42514 5.33517 3.09825 6.61358 2.92637C7.91356 2.75159 9.62177 2.75 12 2.75C14.3782 2.75 16.0864 2.75159 17.3864 2.92637C18.6648 3.09825 19.4355 3.42514 20.0052 3.9948C20.5749 4.56445 20.9018 5.33517 21.0736 6.61358C21.2484 7.91356 21.25 9.62178 21.25 12C21.25 14.3782 21.2484 16.0864 21.0736 17.3864C20.9018 18.6648 20.5749 19.4355 20.0052 20.0052C19.4355 20.5749 18.6648 20.9018 17.3864 21.0736C16.0864 21.2484 14.3782 21.25 12 21.25C9.62177 21.25 7.91356 21.2484 6.61358 21.0736C5.33517 20.9018 4.56445 20.5749 3.9948 20.0052C3.42514 19.4355 3.09825 18.6648 2.92637 17.3864C2.75159 16.0864 2.75 14.3782 2.75 12C2.75 9.62178 2.75159 7.91356 2.92637 6.61358C3.09825 5.33517 3.42514 4.56445 3.9948 3.9948Z" fill="#ffffff"></path> </g></svg>
-  </button> )}
-  const approveBtn = (sub)=>{ return (<button onClick={() => handleApprove(sub.id)} className={styles.approveBtn}>Approve</button> )}
-  
+  const submitBtn = (sub) => {
+    return (
+      <button
+        onClick={() => handleFeedback(sub.id)}
+        className={styles.submitBtn}
+      >
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <g id="SVGRepo_bgCarrier" stroke-width="0"></g>
+          <g
+            id="SVGRepo_tracerCarrier"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          ></g>
+          <g id="SVGRepo_iconCarrier">
+            {" "}
+            <path
+              d="M7.25 7C7.25 7.41421 7.58579 7.75 8 7.75H16C16.4142 7.75 16.75 7.41421 16.75 7C16.75 6.58579 16.4142 6.25 16 6.25H8C7.58579 6.25 7.25 6.58579 7.25 7Z"
+              fill="#ffffff"
+            ></path>{" "}
+            <path
+              d="M12 17.75C12.4142 17.75 12.75 17.4142 12.75 17V11.8107L14.4697 13.5303C14.7626 13.8232 15.2374 13.8232 15.5303 13.5303C15.8232 13.2374 15.8232 12.7626 15.5303 12.4697L12.5303 9.46967C12.3897 9.32902 12.1989 9.25 12 9.25C11.8011 9.25 11.6103 9.32902 11.4697 9.46967L8.46967 12.4697C8.17678 12.7626 8.17678 13.2374 8.46967 13.5303C8.76256 13.8232 9.23744 13.8232 9.53033 13.5303L11.25 11.8107V17C11.25 17.4142 11.5858 17.75 12 17.75Z"
+              fill="#ffffff"
+            ></path>{" "}
+            <path
+              fill-rule="evenodd"
+              clip-rule="evenodd"
+              d="M11.9426 1.25C9.63423 1.24999 7.82519 1.24998 6.4137 1.43975C4.96897 1.63399 3.82895 2.03933 2.93414 2.93414C2.03933 3.82895 1.63399 4.96897 1.43975 6.41371C1.24998 7.82519 1.24999 9.63423 1.25 11.9426V12.0574C1.24999 14.3658 1.24998 16.1748 1.43975 17.5863C1.63399 19.031 2.03933 20.1711 2.93414 21.0659C3.82895 21.9607 4.96897 22.366 6.4137 22.5603C7.82519 22.75 9.63423 22.75 11.9426 22.75H12.0574C14.3658 22.75 16.1748 22.75 17.5863 22.5603C19.031 22.366 20.1711 21.9607 21.0659 21.0659C21.9607 20.1711 22.366 19.031 22.5603 17.5863C22.75 16.1748 22.75 14.3658 22.75 12.0574V11.9426C22.75 9.63423 22.75 7.82519 22.5603 6.41371C22.366 4.96897 21.9607 3.82895 21.0659 2.93414C20.1711 2.03933 19.031 1.63399 17.5863 1.43975C16.1748 1.24998 14.3658 1.24999 12.0574 1.25H11.9426ZM3.9948 3.9948C4.56445 3.42514 5.33517 3.09825 6.61358 2.92637C7.91356 2.75159 9.62177 2.75 12 2.75C14.3782 2.75 16.0864 2.75159 17.3864 2.92637C18.6648 3.09825 19.4355 3.42514 20.0052 3.9948C20.5749 4.56445 20.9018 5.33517 21.0736 6.61358C21.2484 7.91356 21.25 9.62178 21.25 12C21.25 14.3782 21.2484 16.0864 21.0736 17.3864C20.9018 18.6648 20.5749 19.4355 20.0052 20.0052C19.4355 20.5749 18.6648 20.9018 17.3864 21.0736C16.0864 21.2484 14.3782 21.25 12 21.25C9.62177 21.25 7.91356 21.2484 6.61358 21.0736C5.33517 20.9018 4.56445 20.5749 3.9948 20.0052C3.42514 19.4355 3.09825 18.6648 2.92637 17.3864C2.75159 16.0864 2.75 14.3782 2.75 12C2.75 9.62178 2.75159 7.91356 2.92637 6.61358C3.09825 5.33517 3.42514 4.56445 3.9948 3.9948Z"
+              fill="#ffffff"
+            ></path>{" "}
+          </g>
+        </svg>
+      </button>
+    );
+  };
+  const approveBtn = (sub) => {
+    return (
+      <button
+        onClick={() => handleApprove(sub.id)}
+        className={styles.approveBtn}
+      >
+        Approve
+      </button>
+    );
+  };
+
   useEffect(() => {
-    if(isDropdownVisible1){setMode("admin")}
-    if(isDropdownVisible2){setMode("faculty")}
-  }, [isDropdownVisible1,isDropdownVisible2]);
-  
+    if (isDropdownVisible1) {
+      setMode("admin");
+    }
+    if (isDropdownVisible2) {
+      setMode("faculty");
+    }
+  }, [isDropdownVisible1, isDropdownVisible2]);
+
   const toggleDropdown1 = () => {
-    if(isDropdownVisible1){setMode("admin")}
+    if (isDropdownVisible1) {
+      setMode("admin");
+    }
     // (isDropdownVisible1) ? setMode("admin") : setMode("faculty") ;
     setIsDropdownVisible1((prev) => !prev);
     setIsDropdownVisible2((prev) => !prev);
-    
-    
-    
   };
   const toggleDropdown2 = () => {
-    if(isDropdownVisible2){setMode("faculty")}
+    if (isDropdownVisible2) {
+      setMode("faculty");
+    }
     // (isDropdownVisible2) ? setMode("faculty") : setMode("admin") ;
-    
+
     setIsDropdownVisible2((prev) => !prev);
     setIsDropdownVisible1((prev) => !prev);
-    
   };
- 
 
   useEffect(() => {
     const fetchSubmissions = async () => {
@@ -84,6 +163,18 @@ const Dashboard = () => {
     fetchSubmissions();
   }, []);
 
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await getSessionUser();
+        setCurrentUser(user);
+      } catch (error) {
+        console.error("Error fetching current user:", error);
+      }
+    };
+
+    fetchUser();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -94,20 +185,30 @@ const Dashboard = () => {
         return;
       }
 
-      // Add metadata to Firestore
-      const docRef = await addDoc(collection(db, "uploads"), {
-        subjectCode,
-        courseName,
-        teacherName,
-        fileName: file.name,
-        uploadedBy: auth.currentUser.email,
-        status: "Pending",
-        dept: department,
-        uploadedAt: new Date(),
-      });
+      const uploadedFile = await uploadPdfToStorage(file);
+
+      const { data, error } = await supabase
+        .from("uploads")
+        .insert({
+          subjectCode,
+          courseName,
+          teacherName,
+          file_name: uploadedFile.fileName,
+          file_url: uploadedFile.fileUrl,
+          uploaded_by: currentUser?.email,
+          status: "Pending",
+          dept: department,
+          uploaded_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        throw error;
+      }
 
       toast.success("File uploaded successfully!");
-      console.log("Document written with ID: ", docRef.id);
+      console.log("Document written with ID: ", data.id);
 
       // Reset form
       setSubjectCode("");
@@ -121,17 +222,15 @@ const Dashboard = () => {
     }
   };
 
-  const getStatus = (status) =>{
-    if(status === "Pending"){
-      return <h3 className={styles.orange} >Pending</h3>
+  const getStatus = (status) => {
+    if (status === "Pending") {
+      return <h3 className={styles.orange}>Pending</h3>;
+    } else if (status === "Approved") {
+      return <h3 className={styles.green}>Approved</h3>;
+    } else if (status === "Rejected") {
+      return <h3 className={styles.red}>Rejected</h3>;
     }
-    else if(status === "Approved"){
-      return <h3 className={styles.green} >Approved</h3>
-    }else if (status === "Rejected"){
-      return <h3 className={styles.red} >Rejected</h3>
-    }
-  }
-
+  };
 
   const handleFeedbackChange = (id, value) => {
     setFeedback((prev) => ({
@@ -171,454 +270,552 @@ const Dashboard = () => {
 
   return (
     <>
-    <div className={styles.mainContainer}>
-      <div className={styles.profileSection}>
-        <div className={styles.profileDetails}>
-          <svg className={styles.profileIcon} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g id="SVGRepo_bgCarrier" strokeWidth="0"></g><g id="SVGRepo_tracerCarrier" strokeLinecap="round" strokeLinejoin="round"></g><g id="SVGRepo_iconCarrier"> <path opacity="0.4" d="M12.1207 12.78C12.0507 12.77 11.9607 12.77 11.8807 12.78C10.1207 12.72 8.7207 11.28 8.7207 9.50998C8.7207 7.69998 10.1807 6.22998 12.0007 6.22998C13.8107 6.22998 15.2807 7.69998 15.2807 9.50998C15.2707 11.28 13.8807 12.72 12.1207 12.78Z" stroke="#154784" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path> <path opacity="0.34" d="M18.7398 19.3801C16.9598 21.0101 14.5998 22.0001 11.9998 22.0001C9.39977 22.0001 7.03977 21.0101 5.25977 19.3801C5.35977 18.4401 5.95977 17.5201 7.02977 16.8001C9.76977 14.9801 14.2498 14.9801 16.9698 16.8001C18.0398 17.5201 18.6398 18.4401 18.7398 19.3801Z" stroke="#154784" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path> <path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z" stroke="#154784" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"></path> </g></svg>
-          <div className={styles.subProfileDetails}>
-            <h2 className={styles.name}>{extractName(auth.currentUser.email)}</h2>
-            <h2 className={styles.mail}>{auth.currentUser.email}</h2>
+      <div className={styles.mainContainer}>
+        <div className={styles.profileSection}>
+          <div className={styles.profileDetails}>
+            <svg
+              className={styles.profileIcon}
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <g id="SVGRepo_bgCarrier" strokeWidth="0"></g>
+              <g
+                id="SVGRepo_tracerCarrier"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              ></g>
+              <g id="SVGRepo_iconCarrier">
+                {" "}
+                <path
+                  opacity="0.4"
+                  d="M12.1207 12.78C12.0507 12.77 11.9607 12.77 11.8807 12.78C10.1207 12.72 8.7207 11.28 8.7207 9.50998C8.7207 7.69998 10.1807 6.22998 12.0007 6.22998C13.8107 6.22998 15.2807 7.69998 15.2807 9.50998C15.2707 11.28 13.8807 12.72 12.1207 12.78Z"
+                  stroke="#154784"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                ></path>{" "}
+                <path
+                  opacity="0.34"
+                  d="M18.7398 19.3801C16.9598 21.0101 14.5998 22.0001 11.9998 22.0001C9.39977 22.0001 7.03977 21.0101 5.25977 19.3801C5.35977 18.4401 5.95977 17.5201 7.02977 16.8001C9.76977 14.9801 14.2498 14.9801 16.9698 16.8001C18.0398 17.5201 18.6398 18.4401 18.7398 19.3801Z"
+                  stroke="#154784"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                ></path>{" "}
+                <path
+                  d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22Z"
+                  stroke="#154784"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                ></path>{" "}
+              </g>
+            </svg>
+            <div className={styles.subProfileDetails}>
+              <h2 className={styles.name}>{extractName(currentUser?.email)}</h2>
+              <h2 className={styles.mail}>{currentUser?.email}</h2>
+            </div>
           </div>
+
+          <ul className={styles.buttonList1}>
+            {/* Dropdown Toggle */}
+            <li>
+              <h1 onClick={toggleDropdown1} style={{ cursor: "pointer" }}>
+                Approval Details
+              </h1>
+              <br />
+            </li>
+
+            {/* Dropdown Items */}
+            {isDropdownVisible1 && (
+              <>
+                <li>
+                  <button
+                    className={styles.all}
+                    onClick={async () => {
+                      try {
+                        const data = await getAllSubmissions();
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error("Error fetching all submissions:", error);
+                      }
+                    }}
+                  >
+                    All
+                  </button>
+                </li>
+                <li>
+                  <button
+                    className={styles.pending}
+                    onClick={async () => {
+                      try {
+                        const data = await getAllSubmissionsByStatus("Pending");
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error(
+                          "Error fetching pending submissions:",
+                          error
+                        );
+                      }
+                    }}
+                  >
+                    Pending
+                  </button>
+                </li>
+                <li>
+                  <button
+                    className={styles.approved}
+                    onClick={async () => {
+                      try {
+                        const data = await getAllSubmissionsByStatus(
+                          "Approved"
+                        );
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error(
+                          "Error fetching approved submissions:",
+                          error
+                        );
+                      }
+                    }}
+                  >
+                    Approved
+                  </button>
+                </li>
+                <li>
+                  <button
+                    className={styles.rejected}
+                    onClick={async () => {
+                      try {
+                        const data = await getAllSubmissionsByStatus(
+                          "Rejected"
+                        );
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error(
+                          "Error fetching rejected submissions:",
+                          error
+                        );
+                      }
+                    }}
+                  >
+                    Rejected
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+
+          <ul className={styles.buttonList2}>
+            {/* Dropdown Toggle */}
+            <li>
+              <h1 onClick={toggleDropdown2} style={{ cursor: "pointer" }}>
+                Submission Details
+              </h1>
+              <br />
+            </li>
+
+            {/* Dropdown Items */}
+            {isDropdownVisible2 && (
+              <>
+                <li>
+                  <button
+                    className={styles.all}
+                    onClick={async () => {
+                      try {
+                        const data = await getSubmissionsByTeacher(
+                          currentUser?.email
+                        );
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error("Error fetching all submissions:", error);
+                      }
+                    }}
+                  >
+                    All
+                  </button>
+                </li>
+                <li>
+                  <button
+                    className={styles.pending}
+                    onClick={async () => {
+                      try {
+                        const data = await getSubmissionsByStausAndEmail(
+                          currentUser?.email,
+                          "Pending"
+                        );
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error(
+                          "Error fetching pending submissions:",
+                          error
+                        );
+                      }
+                    }}
+                  >
+                    Pending
+                  </button>
+                </li>
+                <li>
+                  <button
+                    className={styles.approved}
+                    onClick={async () => {
+                      try {
+                        const data = await getSubmissionsByStausAndEmail(
+                          currentUser?.email,
+                          "Approved"
+                        );
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error(
+                          "Error fetching approved submissions:",
+                          error
+                        );
+                      }
+                    }}
+                  >
+                    Approved
+                  </button>
+                </li>
+                <li>
+                  <button
+                    className={styles.rejected}
+                    onClick={async () => {
+                      try {
+                        const data = await getSubmissionsByStausAndEmail(
+                          currentUser?.email,
+                          "Rejected"
+                        );
+                        setSubmissions(data);
+                      } catch (error) {
+                        console.error(
+                          "Error fetching rejected submissions:",
+                          error
+                        );
+                      }
+                    }}
+                  >
+                    Rejected
+                  </button>
+                </li>
+              </>
+            )}
+          </ul>
+
+          <ul className={styles.buttonList2}>
+            <li>
+              <button
+                className={styles.signOut}
+                onClick={async () => {
+                  try {
+                    await signOutUser();
+                    navigate("/", { replace: true });
+                    toast.success("You have been signed out!");
+                  } catch (error) {
+                    console.error("Error during sign out:", error);
+                    toast.error("Sign out failed. Please try again.");
+                  }
+                }}
+              >
+                Sign Out
+              </button>
+            </li>
+            <li>
+              <button
+                className={styles.signOut}
+                onClick={() => {
+                  navigate("/faculty");
+                }}
+              >
+                See Faculty (temp button )
+              </button>
+            </li>
+          </ul>
         </div>
 
-
-        <ul className={styles.buttonList1}>
-      {/* Dropdown Toggle */}
-          <li>
-            <h1 onClick={toggleDropdown1} style={{ cursor: "pointer" }}>
-              Approval Details
-            </h1>
+        {userMode === "admin" ? (
+          <div className={styles.contents}>
+            <div className={styles.display}>
+              <h4>Admin Dashboard</h4>
+            </div>
             <br />
-          </li>
-
-          {/* Dropdown Items */}
-          {isDropdownVisible1 && (
-            <>
-              <li>
-                <button
-                  className={styles.all}
-                  onClick={async () => {
-                    try {
-                      const data = await getAllSubmissions();
-                      setSubmissions(data);
-                    } catch (error) {
-                      console.error("Error fetching all submissions:", error);
-                    }
-                  }}
-                >
-                  All
-                </button>
-              </li>
-              <li>
-                <button
-                  className={styles.pending}
-                  onClick={async () => {
-                    try {
-                      const data = await getAllSubmissionsByStatus("Pending");
-                      setSubmissions(data);
-                    } catch (error) {
-                      console.error("Error fetching pending submissions:", error);
-                    }
-                  }}
-                >
-                  Pending
-                </button>
-              </li>
-              <li>
-                <button
-                  className={styles.approved}
-                  onClick={async () => {
-                    try {
-                      const data = await getAllSubmissionsByStatus("Approved");
-                      setSubmissions(data);
-                    } catch (error) {
-                      console.error("Error fetching approved submissions:", error);
-                    }
-                  }}
-                >
-                  Approved
-                </button>
-              </li>
-              <li>
-                <button
-                  className={styles.rejected}
-                  onClick={async () => {
-                    try {
-                      const data = await getAllSubmissionsByStatus("Rejected");
-                      setSubmissions(data);
-                    } catch (error) {
-                      console.error("Error fetching rejected submissions:", error);
-                    }
-                  }}
-                >
-                  Rejected
-                </button>
-              </li>
-            </>
-          )}
-        </ul>
-
-
-        <ul className={styles.buttonList2}>
-      {/* Dropdown Toggle */}
-      <li>
-        <h1 onClick={toggleDropdown2} style={{ cursor: "pointer" }}>
-        Submission Details
-        </h1>
-        <br />
-      </li>
-
-      {/* Dropdown Items */}
-      {isDropdownVisible2 && (
-        <>
-          <li>
-            <button
-              className={styles.all}
-              onClick={async () => {
-                try {
-                  const data = await getSubmissionsByTeacher(auth.currentUser.email);
-                  setSubmissions(data);
-                } catch (error) {
-                  console.error("Error fetching all submissions:", error);
-                }
-              }}
-            >
-              All
-            </button>
-          </li>
-          <li>
-            <button
-              className={styles.pending}
-              onClick={async () => {
-                try {
-                  const data = await getSubmissionsByStausAndEmail(
-                    auth.currentUser.email,
-                    "Pending"
-                  );
-                  setSubmissions(data);
-                } catch (error) {
-                  console.error("Error fetching pending submissions:", error);
-                }
-              }}
-            >
-              Pending
-            </button>
-          </li>
-          <li>
-            <button
-              className={styles.approved}
-              onClick={async () => {
-                try {
-                  const data = await getSubmissionsByStausAndEmail(
-                    auth.currentUser.email,
-                    "Approved"
-                  );
-                  setSubmissions(data);
-                } catch (error) {
-                  console.error("Error fetching approved submissions:", error);
-                }
-              }}
-            >
-              Approved
-            </button>
-          </li>
-          <li>
-            <button
-              className={styles.rejected}
-              onClick={async () => {
-                try {
-                  const data = await getSubmissionsByStausAndEmail(
-                    auth.currentUser.email,
-                    "Rejected"
-                  );
-                  setSubmissions(data);
-                } catch (error) {
-                  console.error("Error fetching rejected submissions:", error);
-                }
-              }}
-            >
-              Rejected
-            </button>
-          </li>
-        </>
-      )}
-    </ul>
-
-
-      <ul className={styles.buttonList2}>
-        <li>
-        <button
-                  className={styles.signOut}
-                  onClick={async () => {
-                    try {
-                      await signOut(auth); // Sign out the user
-                      navigate("/", { replace: true });
-                      window.location.reload(); // Redirect to login page
-                      toast.success("You have been signed out!");
-                    } catch (error) {
-                      console.error("Error during sign out:", error);
-                      toast.error("Sign out failed. Please try again.");
-                    }
-                  }}
-                >
-                  Sign Out
-          </button>
-        </li>
-        <li>
-            <button className={styles.signOut} onClick={ ()=>{navigate("/faculty")}} >See Faculty (temp button )</button>
-        </li>
-      </ul>
-
-      </div>
-
-    {(userMode === "admin") ? 
-      <div className={styles.contents}>
-        <div className={styles.display}>
-        <h4>Admin Dashboard</h4>
-        </div>
-        <br />
-        <h1>Upload Question Paper :</h1>
-        <br />
-        <form className={styles.form} onSubmit={handleSubmit}>
-          <div className={styles.inputs}>
-            <label>Subject Code</label>
-            <input
-              type="text"
-              value={subjectCode}
-              onChange={(e) => setSubjectCode(e.target.value)}
-              required
-            />
-          </div>
-          <div className={styles.inputs}>
-            <label>Course Name</label>
-            <input
-              type="text"
-              value={courseName}
-              onChange={(e) => setCourseName(e.target.value)}
-              required
-            />
-          </div>
-          <div className={styles.inputs}>
-            <label>Department</label>
-            <input
-              type="text"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              required
-            />
-          </div>
-          <div className={styles.inputs}>
-            <label>Teacher Name</label>
-            <input
-              type="text"
-              value={teacherName}
-              onChange={(e) => setTeacherName(e.target.value)}
-              required
-            />
-          </div>
-          
-          <div className={styles.uploadSection}>
-              
-            <div>
-              <input
-                type="file"
-                onChange={(e) => setFile(e.target.files[0])}
-                required
-              />
-            </div>
-            <button className={styles.uploadBtn} type="submit">
-                          
-                        <svg viewBox="0 0 1024 1024" className="icon" xmlns="http://www.w3.org/2000/svg" fill="#000000">
-                <path d="M768 810.7c-23.6 0-42.7-19.1-42.7-42.7s19.1-42.7 42.7-42.7c94.1 0 170.7-76.6 170.7-170.7 0-89.6-70.1-164.3-159.5-170.1L754 383l-10.7-22.7c-42.2-89.3-133-147-231.3-147s-189.1 57.7-231.3 147L270 383l-25.1 1.6c-89.5 5.8-159.5 80.5-159.5 170.1 0 94.1 76.6 170.7 170.7 170.7 23.6 0 42.7 19.1 42.7 42.7s-19.1 42.7-42.7 42.7c-141.2 0-256-114.8-256-256 0-126.1 92.5-232.5 214.7-252.4C274.8 195.7 388.9 128 512 128s237.2 67.7 297.3 174.2C931.5 322.1 1024 428.6 1024 554.7c0 141.1-114.8 256-256 256z" fill="#1472ff"></path>
-                <path d="M640 789.3c-10.9 0-21.8-4.2-30.2-12.5L512 679l-97.8 97.8c-16.6 16.7-43.7 16.7-60.3 0-16.7-16.7-16.7-43.7 0-60.3l128-128c16.6-16.7 43.7-16.7 60.3 0l128 128c16.7 16.7 16.7 43.7 0 60.3-8.4 8.4-19.3 12.5-30.2 12.5z" fill="#4d537a"></path>
-                <path d="M512 960c-23.6 0-42.7-19.1-42.7-42.7V618.7c0-23.6 19.1-42.7 42.7-42.7s42.7 19.1 42.7 42.7v298.7c0 23.5-19.1 42.6-42.7 42.6z" fill="#4d537a"></path></svg>
-
-                </button>
-            </div>
-                            
-
-
-        </form>
-        
-        <br />
-        <h1>Previous Submissions : </h1>
-        <br />
-        { 
-        submissions.length > 0 ? (
-          submissions.map((sub) => (
-            
-            <div key={sub.id} className= {styles.row}>
-              
-
-              <div className={styles.card}>
-                <div className={styles.header}>
-                  <div className={styles.subjectInfo}>
-                    <h3 className={styles.courseName}>{sub.courseName}</h3>
-                    <h3 className={styles.subjectCode}>{sub.subjectCode}</h3>
-                  </div>
-                  <div className={styles.action}>
-                    {sub.status === "Pending" ? approveBtn(sub) : <></>}
-                  </div>
-                </div>
-                <div className={styles.details}>
-                  <div className={styles.dateTime}>
-                      <h3>Faculty : {sub.teacherName}</h3>
-                      <h3>Department : {sub.dept}</h3>
-                      <div className={styles.file}>
-                        <h3>File : </h3> <button>{sub.fileName}</button>
-                      </div>
-                      <h3>Status : {sub.status}</h3>
-                    </div>
-                    
-                    <div className={styles.dateTime}>
-                      <h3>Date: {sub.date}</h3>
-                      <h3>Time: {sub.time}</h3>
-                    </div>
-                </div>
+            <h1>Upload Question Paper :</h1>
+            <br />
+            <form className={styles.form} onSubmit={handleSubmit}>
+              <div className={styles.inputs}>
+                <label>Subject Code</label>
+                <input
+                  type="text"
+                  value={subjectCode}
+                  onChange={(e) => setSubjectCode(e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.inputs}>
+                <label>Course Name</label>
+                <input
+                  type="text"
+                  value={courseName}
+                  onChange={(e) => setCourseName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.inputs}>
+                <label>Department</label>
+                <input
+                  type="text"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.inputs}>
+                <label>Teacher Name</label>
+                <input
+                  type="text"
+                  value={teacherName}
+                  onChange={(e) => setTeacherName(e.target.value)}
+                  required
+                />
               </div>
 
-              
-
-
-              {(sub.status === "Pending")? 
-                <div className= {styles.feedback}>
-                  
+              <div className={styles.uploadSection}>
+                <div>
                   <input
-                    type="text"
-                    placeholder="Provide Feedback"
-                    value={feedback[sub.id] || ""}
-                    onChange={(e) => handleFeedbackChange(sub.id, e.target.value)}
-                  />{(sub.status == "Pending") ? submitBtn(sub) : <></>} 
-                </div> : <div className= {styles.feedback}><h3> <span className= {styles.FeedbackSpan}>Feedback provided  :</span>  {sub.feedback ? sub.feedback : "...." }</h3> {(sub.status == "Pending") ? [editBtn , deleteBtn] : <></>} </div> 
-              }
-                              
-              
-              
-              
-            </div>
-            
-          ))
+                    type="file"
+                    onChange={(e) => setFile(e.target.files[0])}
+                    required
+                  />
+                </div>
+                <button className={styles.uploadBtn} type="submit">
+                  <svg
+                    viewBox="0 0 1024 1024"
+                    className="icon"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="#000000"
+                  >
+                    <path
+                      d="M768 810.7c-23.6 0-42.7-19.1-42.7-42.7s19.1-42.7 42.7-42.7c94.1 0 170.7-76.6 170.7-170.7 0-89.6-70.1-164.3-159.5-170.1L754 383l-10.7-22.7c-42.2-89.3-133-147-231.3-147s-189.1 57.7-231.3 147L270 383l-25.1 1.6c-89.5 5.8-159.5 80.5-159.5 170.1 0 94.1 76.6 170.7 170.7 170.7 23.6 0 42.7 19.1 42.7 42.7s-19.1 42.7-42.7 42.7c-141.2 0-256-114.8-256-256 0-126.1 92.5-232.5 214.7-252.4C274.8 195.7 388.9 128 512 128s237.2 67.7 297.3 174.2C931.5 322.1 1024 428.6 1024 554.7c0 141.1-114.8 256-256 256z"
+                      fill="#1472ff"
+                    ></path>
+                    <path
+                      d="M640 789.3c-10.9 0-21.8-4.2-30.2-12.5L512 679l-97.8 97.8c-16.6 16.7-43.7 16.7-60.3 0-16.7-16.7-16.7-43.7 0-60.3l128-128c16.6-16.7 43.7-16.7 60.3 0l128 128c16.7 16.7 16.7 43.7 0 60.3-8.4 8.4-19.3 12.5-30.2 12.5z"
+                      fill="#4d537a"
+                    ></path>
+                    <path
+                      d="M512 960c-23.6 0-42.7-19.1-42.7-42.7V618.7c0-23.6 19.1-42.7 42.7-42.7s42.7 19.1 42.7 42.7v298.7c0 23.5-19.1 42.6-42.7 42.6z"
+                      fill="#4d537a"
+                    ></path>
+                  </svg>
+                </button>
+              </div>
+            </form>
+
+            <br />
+            <h1>Previous Submissions : </h1>
+            <br />
+            {submissions.length > 0 ? (
+              submissions.map((sub) => (
+                <div key={sub.id} className={styles.row}>
+                  <div className={styles.card}>
+                    <div className={styles.header}>
+                      <div className={styles.subjectInfo}>
+                        <h3 className={styles.courseName}>{sub.courseName}</h3>
+                        <h3 className={styles.subjectCode}>
+                          {sub.subjectCode}
+                        </h3>
+                      </div>
+                      <div className={styles.action}>
+                        {sub.status === "Pending" ? approveBtn(sub) : <></>}
+                      </div>
+                    </div>
+                    <div className={styles.details}>
+                      <div className={styles.dateTime}>
+                        <h3>Faculty : {sub.teacherName}</h3>
+                        <h3>Department : {sub.dept}</h3>
+                        <div className={styles.file}>
+                          <h3>File : </h3> <button>{sub.fileName}</button>
+                        </div>
+                        <h3>Status : {sub.status}</h3>
+                      </div>
+
+                      <div className={styles.dateTime}>
+                        <h3>Date: {sub.date}</h3>
+                        <h3>Time: {sub.time}</h3>
+                      </div>
+                    </div>
+                  </div>
+
+                  {sub.status === "Pending" ? (
+                    <div className={styles.feedback}>
+                      <input
+                        type="text"
+                        placeholder="Provide Feedback"
+                        value={feedback[sub.id] || ""}
+                        onChange={(e) =>
+                          handleFeedbackChange(sub.id, e.target.value)
+                        }
+                      />
+                      {sub.status == "Pending" ? submitBtn(sub) : <></>}
+                    </div>
+                  ) : (
+                    <div className={styles.feedback}>
+                      <h3>
+                        {" "}
+                        <span className={styles.FeedbackSpan}>
+                          Feedback provided :
+                        </span>{" "}
+                        {sub.feedback ? sub.feedback : "...."}
+                      </h3>{" "}
+                      {sub.status == "Pending" ? [editBtn, deleteBtn] : <></>}{" "}
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className={styles.noData}>No available data...</div>
+            )}
+          </div>
         ) : (
-          <div className= {styles.noData} >No available data...</div>
-        )}
-      </div> 
-      
-      :
-
-
-
-      <div className={styles.contents}>
-      <div className={styles.display}>
-      <h4>Faculty Dashboard</h4>
-      </div>
-      <br />
-      <h1>Upload Question Paper :</h1>
-      <br />
-      <form className={styles.form} onSubmit={handleSubmit}>
-        <div className={styles.inputs}>
-          <label>Subject Code</label>
-          <input
-            type="text"
-            value={subjectCode}
-            onChange={(e) => setSubjectCode(e.target.value)}
-            required
-          />
-        </div>
-        <div className={styles.inputs}>
-          <label>Course Name</label>
-          <input
-            type="text"
-            value={courseName}
-            onChange={(e) => setCourseName(e.target.value)}
-            required
-          />
-        </div>
-        <div className={styles.inputs}>
-          <label>Department</label>
-          <input
-            type="text"
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            required
-          />
-        </div>
-        <div className={styles.inputs}>
-          <label>Teacher Name</label>
-          <input
-            type="text"
-            value={teacherName}
-            onChange={(e) => setTeacherName(e.target.value)}
-            required
-          />
-        </div>
-        
-        <div className={styles.uploadSection}>
-            
-          <div>
-            <input
-              type="file"
-              onChange={(e) => setFile(e.target.files[0])}
-              required
-            />
-          </div>
-          <button className={styles.uploadBtn} type="submit">
-                        
-                      <svg viewBox="0 0 1024 1024" className="icon" xmlns="http://www.w3.org/2000/svg" fill="#000000">
-              <path d="M768 810.7c-23.6 0-42.7-19.1-42.7-42.7s19.1-42.7 42.7-42.7c94.1 0 170.7-76.6 170.7-170.7 0-89.6-70.1-164.3-159.5-170.1L754 383l-10.7-22.7c-42.2-89.3-133-147-231.3-147s-189.1 57.7-231.3 147L270 383l-25.1 1.6c-89.5 5.8-159.5 80.5-159.5 170.1 0 94.1 76.6 170.7 170.7 170.7 23.6 0 42.7 19.1 42.7 42.7s-19.1 42.7-42.7 42.7c-141.2 0-256-114.8-256-256 0-126.1 92.5-232.5 214.7-252.4C274.8 195.7 388.9 128 512 128s237.2 67.7 297.3 174.2C931.5 322.1 1024 428.6 1024 554.7c0 141.1-114.8 256-256 256z" fill="#1472ff"></path>
-              <path d="M640 789.3c-10.9 0-21.8-4.2-30.2-12.5L512 679l-97.8 97.8c-16.6 16.7-43.7 16.7-60.3 0-16.7-16.7-16.7-43.7 0-60.3l128-128c16.6-16.7 43.7-16.7 60.3 0l128 128c16.7 16.7 16.7 43.7 0 60.3-8.4 8.4-19.3 12.5-30.2 12.5z" fill="#4d537a"></path>
-              <path d="M512 960c-23.6 0-42.7-19.1-42.7-42.7V618.7c0-23.6 19.1-42.7 42.7-42.7s42.7 19.1 42.7 42.7v298.7c0 23.5-19.1 42.6-42.7 42.6z" fill="#4d537a"></path></svg>
-
-              </button>
-          </div>
-                          
-
-
-      </form>
-
-      <br />
-      <h1>Previous Submissions : </h1>
-      <br />
-      <div className= {styles.tableHeaderf}>
-            <div className= {styles.columnsf}><h3>Subject Code</h3> </div>
-            <div className= {styles.columnsf}><h3>Course Name </h3></div>
-            <div className= {styles.columnsf}><h3>Date </h3></div>
-            <div className= {styles.columnsf}><h3>Time </h3></div>
-            <div className= {styles.columnsf}><h3>Status </h3></div>
-            
-        </div>
-      { 
-      submissions.length > 0 ? (
-        submissions.map((sub) => (
-          
-          <div key={sub.id} className= {styles.rowf}>
-            
-
-            <div className={styles.tablef}>
-              <div className= {styles.columnsf}><h3>{sub.subjectCode}</h3></div>
-              <div className= {styles.columnsf}><h3>{sub.courseName}</h3></div>
-              <div className= {styles.columnsf}><h3>{sub.date}</h3></div>
-              <div className= {styles.columnsf}> <h3>{sub.time}</h3></div>
-              <div className= {styles.columnsf}><h3>{getStatus(sub.status)}</h3></div>
+          <div className={styles.contents}>
+            <div className={styles.display}>
+              <h4>Faculty Dashboard</h4>
             </div>
+            <br />
+            <h1>Upload Question Paper :</h1>
+            <br />
+            <form className={styles.form} onSubmit={handleSubmit}>
+              <div className={styles.inputs}>
+                <label>Subject Code</label>
+                <input
+                  type="text"
+                  value={subjectCode}
+                  onChange={(e) => setSubjectCode(e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.inputs}>
+                <label>Course Name</label>
+                <input
+                  type="text"
+                  value={courseName}
+                  onChange={(e) => setCourseName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.inputs}>
+                <label>Department</label>
+                <input
+                  type="text"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  required
+                />
+              </div>
+              <div className={styles.inputs}>
+                <label>Teacher Name</label>
+                <input
+                  type="text"
+                  value={teacherName}
+                  onChange={(e) => setTeacherName(e.target.value)}
+                  required
+                />
+              </div>
 
-            <div className= {styles.feedback}><h3> <span className= {styles.FeedbackSpan}>Feedback  :</span>  {sub.feedback ? sub.feedback : "...." }</h3> {(sub.status == "Pending") ? [editBtn , deleteBtn] : <></>} </div>
-            
-            
-            
-            
-            
+              <div className={styles.uploadSection}>
+                <div>
+                  <input
+                    type="file"
+                    onChange={(e) => setFile(e.target.files[0])}
+                    required
+                  />
+                </div>
+                <button className={styles.uploadBtn} type="submit">
+                  <svg
+                    viewBox="0 0 1024 1024"
+                    className="icon"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="#000000"
+                  >
+                    <path
+                      d="M768 810.7c-23.6 0-42.7-19.1-42.7-42.7s19.1-42.7 42.7-42.7c94.1 0 170.7-76.6 170.7-170.7 0-89.6-70.1-164.3-159.5-170.1L754 383l-10.7-22.7c-42.2-89.3-133-147-231.3-147s-189.1 57.7-231.3 147L270 383l-25.1 1.6c-89.5 5.8-159.5 80.5-159.5 170.1 0 94.1 76.6 170.7 170.7 170.7 23.6 0 42.7 19.1 42.7 42.7s-19.1 42.7-42.7 42.7c-141.2 0-256-114.8-256-256 0-126.1 92.5-232.5 214.7-252.4C274.8 195.7 388.9 128 512 128s237.2 67.7 297.3 174.2C931.5 322.1 1024 428.6 1024 554.7c0 141.1-114.8 256-256 256z"
+                      fill="#1472ff"
+                    ></path>
+                    <path
+                      d="M640 789.3c-10.9 0-21.8-4.2-30.2-12.5L512 679l-97.8 97.8c-16.6 16.7-43.7 16.7-60.3 0-16.7-16.7-16.7-43.7 0-60.3l128-128c16.6-16.7 43.7-16.7 60.3 0l128 128c16.7 16.7 16.7 43.7 0 60.3-8.4 8.4-19.3 12.5-30.2 12.5z"
+                      fill="#4d537a"
+                    ></path>
+                    <path
+                      d="M512 960c-23.6 0-42.7-19.1-42.7-42.7V618.7c0-23.6 19.1-42.7 42.7-42.7s42.7 19.1 42.7 42.7v298.7c0 23.5-19.1 42.6-42.7 42.6z"
+                      fill="#4d537a"
+                    ></path>
+                  </svg>
+                </button>
+              </div>
+            </form>
+
+            <br />
+            <h1>Previous Submissions : </h1>
+            <br />
+            <div className={styles.tableHeaderf}>
+              <div className={styles.columnsf}>
+                <h3>Subject Code</h3>{" "}
+              </div>
+              <div className={styles.columnsf}>
+                <h3>Course Name </h3>
+              </div>
+              <div className={styles.columnsf}>
+                <h3>Date </h3>
+              </div>
+              <div className={styles.columnsf}>
+                <h3>Time </h3>
+              </div>
+              <div className={styles.columnsf}>
+                <h3>Status </h3>
+              </div>
+            </div>
+            {submissions.length > 0 ? (
+              submissions.map((sub) => (
+                <div key={sub.id} className={styles.rowf}>
+                  <div className={styles.tablef}>
+                    <div className={styles.columnsf}>
+                      <h3>{sub.subjectCode}</h3>
+                    </div>
+                    <div className={styles.columnsf}>
+                      <h3>{sub.courseName}</h3>
+                    </div>
+                    <div className={styles.columnsf}>
+                      <h3>{sub.date}</h3>
+                    </div>
+                    <div className={styles.columnsf}>
+                      {" "}
+                      <h3>{sub.time}</h3>
+                    </div>
+                    <div className={styles.columnsf}>
+                      <h3>{getStatus(sub.status)}</h3>
+                    </div>
+                  </div>
+
+                  <div className={styles.feedback}>
+                    <h3>
+                      {" "}
+                      <span className={styles.FeedbackSpan}>
+                        Feedback :
+                      </span>{" "}
+                      {sub.feedback ? sub.feedback : "...."}
+                    </h3>{" "}
+                    {sub.status == "Pending" ? [editBtn, deleteBtn] : <></>}{" "}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className={styles.noData}>No available data...</div>
+            )}
           </div>
-          
-        ))
-      ) : (
-        <div className= {styles.noData} >No available data...</div>
-      )}
+        )}
       </div>
-    }
-
-
-    </div>
-  </>
+    </>
   );
 };
 
