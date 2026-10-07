@@ -15,6 +15,7 @@ import { uploadPdfToStorage } from "../services/storageService";
 
 // (No changes to extractName and DropdownField components)
 const extractName = (email) => {
+  if (!email || typeof email !== "string") return "Faculty";
   const namePart = email.split("@")[0];
   const firstName = namePart.split(".")[0];
   return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
@@ -213,7 +214,7 @@ export const NoteEditor = () => {
       const { data, error } = await supabase
         .from("uploads")
         .insert({
-          subjectCode,
+          subject_code: subjectCode,
           course_name: subjectName,
           description,
           teacher_name: extractName(currentUser?.email),

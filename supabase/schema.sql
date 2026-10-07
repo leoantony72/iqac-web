@@ -156,3 +156,47 @@ create index if not exists uploads_uploaded_by_idx on public.uploads (uploaded_b
 create index if not exists uploads_status_idx on public.uploads (status);
 create index if not exists uploads_dept_idx on public.uploads (dept);
 create index if not exists uploads_shared_idx on public.uploads using gin (shared);
+
+-- ==========================================
+-- Storage Configuration (question-papers bucket)
+-- ==========================================
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'question-papers',
+  'question-papers',
+  true,
+  52428800, -- 50MB
+  array['application/pdf']
+)
+on conflict (id) do update set
+  public = true;
+
+drop policy if exists "Allow authenticated uploads to question-papers" on storage.objects;
+drop policy if exists "Allow authenticated updates to question-papers" on storage.objects;
+drop policy if exists "Allow public read access to question-papers" on storage.objects;
+drop policy if exists "Allow authenticated delete from question-papers" on storage.objects;
+
+create policy "Allow authenticated uploads to question-papers"
+  on storage.objects
+  for insert
+  to authenticated
+  with check (bucket_id = 'question-papers');
+
+create policy "Allow authenticated updates to question-papers"
+  on storage.objects
+  for update
+  to authenticated
+  using (bucket_id = 'question-papers');
+
+create policy "Allow public read access to question-papers"
+  on storage.objects
+  for select
+  to public
+  using (bucket_id = 'question-papers');
+
+create policy "Allow authenticated delete from question-papers"
+  on storage.objects
+  for delete
+  to authenticated
+  using (bucket_id = 'question-papers');
