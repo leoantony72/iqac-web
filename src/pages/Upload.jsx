@@ -15,9 +15,12 @@ import { uploadPdfToStorage } from "../services/storageService";
 
 // (No changes to extractName and DropdownField components)
 const extractName = (email) => {
-  if (!email || typeof email !== "string") return "Faculty";
-  const namePart = email.split("@")[0];
-  const firstName = namePart.split(".")[0];
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return "Faculty";
+  }
+  const namePart = email.split("@")[0] || "";
+  const firstName = namePart.split(".")[0] || "";
+  if (!firstName) return "Faculty";
   return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
 };
 

@@ -18,9 +18,12 @@ import styles from "./AdminDashboard.module.css";
 import { uploadPdfToStorage } from "../services/storageService";
 
 const extractName = (email) => {
-  if (!email || typeof email !== "string") return "Admin";
-  const namePart = email.split("@")[0];
-  const firstName = namePart.split(".")[0];
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return "Admin";
+  }
+  const namePart = email.split("@")[0] || "";
+  const firstName = namePart.split(".")[0] || "";
+  if (!firstName) return "Admin";
   return firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
 };
 

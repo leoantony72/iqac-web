@@ -91,8 +91,10 @@ const mapUserRow = (row) => ({
   scrutiny_common: row.scrutiny_common ?? false,
 });
 
-const fetchUploads = async (queryBuilder) => {
-  const { data, error } = await queryBuilder.select(uploadSelect);
+const uploadsQuery = () => supabase.from("uploads").select(uploadSelect);
+
+const fetchUploads = async (queryPromise) => {
+  const { data, error } = await queryPromise;
 
   if (error) {
     throw error;
@@ -101,8 +103,8 @@ const fetchUploads = async (queryBuilder) => {
   return (data ?? []).map(mapUploadRow);
 };
 
-const fetchSingleUpload = async (queryBuilder) => {
-  const { data, error } = await queryBuilder.select(uploadSelect).maybeSingle();
+const fetchSingleUpload = async (queryPromise) => {
+  const { data, error } = await queryPromise.maybeSingle();
 
   if (error) {
     throw error;
@@ -115,7 +117,7 @@ const fetchSingleUpload = async (queryBuilder) => {
 export const getApprovedSubmissions = async (status) => {
   try {
     const documents = await fetchUploads(
-      supabase.from("uploads").eq("status", status)
+      uploadsQuery().eq("status", status)
     );
 
     console.log("Approved Submissions:", documents);
@@ -130,7 +132,7 @@ export const getApprovedSubmissions = async (status) => {
 export const getSubmissionsByStausAndEmail = async (email, status) => {
   try {
     const documents = await fetchUploads(
-      supabase.from("uploads").eq("uploaded_by", email).eq("status", status)
+      uploadsQuery().eq("uploaded_by", email).eq("status", status)
     );
 
     console.log("Submissions:", status, documents);
@@ -145,7 +147,7 @@ export const getSubmissionsByStausAndEmail = async (email, status) => {
 export const getById = async (email) => {
   try {
     const document = await fetchSingleUpload(
-      supabase.from("uploads").eq("uploaded_by", email).order("uploaded_at", {
+      uploadsQuery().eq("uploaded_by", email).order("uploaded_at", {
         ascending: false,
       })
     );
@@ -159,7 +161,7 @@ export const getById = async (email) => {
 export const getBySubmissionId = async (id) => {
   try {
     const document = await fetchSingleUpload(
-      supabase.from("uploads").eq("id", id)
+      uploadsQuery().eq("id", id)
     );
 
     if (document) {
@@ -243,7 +245,7 @@ export const getUserScrutinyCommon = async (email) => {
 export const getSubmissionsByTeacher = async (email) => {
   try {
     return await fetchUploads(
-      supabase.from("uploads").eq("uploaded_by", email)
+      uploadsQuery().eq("uploaded_by", email)
     );
   } catch (error) {
     console.error("Error fetching filtered submissions:", error);
@@ -252,7 +254,7 @@ export const getSubmissionsByTeacher = async (email) => {
 };
 export const getSubmissionsByDepartment = async (department) => {
   try {
-    return await fetchUploads(supabase.from("uploads").eq("dept", department));
+    return await fetchUploads(uploadsQuery().eq("dept", department));
   } catch (error) {
     console.error("Error fetching filtered submissions:", error);
     throw error;
@@ -425,7 +427,7 @@ export const deleteUser = async (userId) => {
 
 export const getAllSubmissions = async () => {
   try {
-    const documents = await fetchUploads(supabase.from("uploads"));
+    const documents = await fetchUploads(uploadsQuery());
 
     console.log("All Submissions:", documents);
     return documents;
@@ -438,7 +440,7 @@ export const getAllSubmissions = async () => {
 export const getAllSubmissionsByStatus = async (status) => {
   try {
     const documents = await fetchUploads(
-      supabase.from("uploads").eq("status", status)
+      uploadsQuery().eq("status", status)
     );
 
     console.log("All Submissions:", documents);
